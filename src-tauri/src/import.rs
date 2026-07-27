@@ -946,90 +946,97 @@ pub async fn import_batch_files(
             percent,
         }).ok();
 
-        // Perform import logic safely
-        let db_lock = state.db.lock().unwrap();
-        let conn = match db_lock.as_ref() {
-            Some(c) => c,
-            None => {
-                return Err("No vault opened".to_string());
-            }
-        };
+        // Perform import logic safely inside a block to drop mutex guards before await
+        let asset_id_to_process = {
+            let db_lock = state.db.lock().unwrap();
+            let conn = match db_lock.as_ref() {
+                Some(c) => c,
+                None => {
+                    return Err("No vault opened".to_string());
+                }
+            };
 
-        let vault_lock = state.vault_path.lock().unwrap();
-        let vault_path = match vault_lock.as_ref() {
-            Some(p) => p,
-            None => {
-                return Err("No vault path".to_string());
-            }
-        };
+            let vault_lock = state.vault_path.lock().unwrap();
+            let vault_path = match vault_lock.as_ref() {
+                Some(p) => p,
+                None => {
+                    return Err("No vault path".to_string());
+                }
+            };
 
-        let id = Uuid::new_v4().to_string();
-        let new_filename = format!("{}.{}", id, ext);
-        let dest_rel_path = PathBuf::from("artgrid").join("media").join(&new_filename);
-        let dest_abs_path = vault_path.join(&dest_rel_path);
+            let id = Uuid::new_v4().to_string();
+            let new_filename = format!("{}.{}", id, ext);
+            let dest_rel_path = PathBuf::from("artgrid").join("media").join(&new_filename);
+            let dest_abs_path = vault_path.join(&dest_rel_path);
 
-        if let Some(parent) = dest_abs_path.parent() {
-            if !parent.exists() {
-                let _ = fs::create_dir_all(parent);
-            }
-        }
-
-        // Transfer file: Move (rename or copy+remove) vs Copy
-        let file_transferred = if move_files {
-            if fs::rename(&source_path, &dest_abs_path).is_ok() {
-                true
-            } else {
-                // Fallback for cross-partition moves
-                if fs::copy(&source_path, &dest_abs_path).is_ok() {
-                    let _ = fs::remove_file(&source_path);
-                    true
-                } else {
-                    false
+            if let Some(parent) = dest_abs_path.parent() {
+                if !parent.exists() {
+                    let _ = fs::create_dir_all(parent);
                 }
             }
-        } else {
-            fs::copy(&source_path, &dest_abs_path).is_ok()
+
+            // Transfer file: Move (rename or copy+remove) vs Copy
+            let file_transferred = if move_files {
+                if fs::rename(&source_path, &dest_abs_path).is_ok() {
+                    true
+                } else {
+                    // Fallback for cross-partition moves
+                    if fs::copy(&source_path, &dest_abs_path).is_ok() {
+                        let _ = fs::remove_file(&source_path);
+                        true
+                    } else {
+                        false
+                    }
+                }
+            } else {
+                fs::copy(&source_path, &dest_abs_path).is_ok()
+            };
+
+            if !file_transferred {
+                failed_count += 1;
+                errors.push(format!("Failed to transfer: {}", filename));
+                continue;
+            }
+
+            let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
+            let (palette, color_profile) = extract_color_palette(&dest_abs_path);
+            let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
+            let metadata = fs::metadata(&dest_abs_path).ok();
+            let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+            let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
+            let now = Utc::now().to_rfc3339();
+            let url = dest_abs_path.to_string_lossy().into_owned();
+
+            let type_ = match ext.as_str() {
+                "md" | "txt" => "text/plain".to_string(),
+                "pdf" => "application/pdf".to_string(),
+                "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+                _ => format!("image/{}", ext)
+            };
+
+            let insert_res = conn.execute(
+                "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id) 
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?13)",
+                (
+                    &id, &filename, &filename, &dest_rel_path.to_string_lossy().into_owned(),
+                    &type_, &size_str, &width, &height, &now, &url, &palette_json, &color_profile, &folder_id
+                ),
+            );
+
+            if insert_res.is_ok() {
+                imported_count += 1;
+                Some(id)
+            } else {
+                failed_count += 1;
+                errors.push(format!("DB insert failed for {}", filename));
+                None
+            }
         };
 
-        if !file_transferred {
-            failed_count += 1;
-            errors.push(format!("Failed to transfer: {}", filename));
-            continue;
-        }
-
-        let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
-        let (palette, color_profile) = extract_color_palette(&dest_abs_path);
-        let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
-        let metadata = fs::metadata(&dest_abs_path).ok();
-        let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
-        let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
-        let now = Utc::now().to_rfc3339();
-        let url = dest_abs_path.to_string_lossy().into_owned();
-
-        let type_ = match ext.as_str() {
-            "md" | "txt" => "text/plain".to_string(),
-            "pdf" => "application/pdf".to_string(),
-            "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
-            _ => format!("image/{}", ext)
-        };
-
-        let insert_res = conn.execute(
-            "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?13)",
-            (
-                &id, &filename, &filename, &dest_rel_path.to_string_lossy().into_owned(),
-                &type_, &size_str, &width, &height, &now, &url, &palette_json, &color_profile, &folder_id
-            ),
-        );
-
-        if insert_res.is_ok() {
-            imported_count += 1;
+        if let Some(id) = asset_id_to_process {
             if let Some(pipeline) = app.try_state::<crate::ai::pipeline::AiPipeline>() {
                 pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { asset_id: id });
             }
-        } else {
-            failed_count += 1;
-            errors.push(format!("DB insert failed for {}", filename));
         }
 
         // Brief yield so main UI thread is smooth and responsive

@@ -27,6 +27,7 @@ export interface AppSettings {
   tldrawTheme?: 'dark' | 'light' | 'match';
   tldrawGridStyle?: 'dots' | 'lines' | 'none';
   tldrawSnapToGrid?: boolean;
+  importMode?: 'copy' | 'move';
 }
 
 interface SettingsState extends AppSettings {
@@ -46,6 +47,7 @@ const defaultSettings: AppSettings = {
   defaultView: 'library',
   autoWatch: true,
   compactMode: false,
+  importMode: 'copy',
   bgBaseColor: '#0a0a0f',
   bgSecondaryColor: '#16161f',
   accentColor: '#7c6bf0',
