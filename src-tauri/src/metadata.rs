@@ -106,3 +106,51 @@ pub fn add_tag_to_asset(asset_id: String, tag_name: String, state: State<'_, App
     
     Ok(Tag { id: tag_id, name: tag_name })
 }
+
+#[tauri::command]
+pub fn remove_tag_from_asset(asset_id: String, tag_name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    let tag_id: String = match conn.query_row(
+        "SELECT id FROM tags WHERE name = ?1",
+        [&tag_name],
+        |row| row.get(0),
+    ) {
+        Ok(id) => id,
+        Err(_) => return Err("Tag not found".to_string()),
+    };
+    
+    conn.execute(
+        "DELETE FROM asset_tags WHERE asset_id = ?1 AND tag_id = ?2",
+        (&asset_id, &tag_id),
+    ).map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub fn add_asset_to_collection(asset_id: String, collection_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    conn.execute(
+        "INSERT OR IGNORE INTO asset_collections (asset_id, collection_id) VALUES (?1, ?2)",
+        (&asset_id, &collection_id),
+    ).map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_asset_from_collection(asset_id: String, collection_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    conn.execute(
+        "DELETE FROM asset_collections WHERE asset_id = ?1 AND collection_id = ?2",
+        (&asset_id, &collection_id),
+    ).map_err(|e| e.to_string())?;
+    
+    Ok(())
+}

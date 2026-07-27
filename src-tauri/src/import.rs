@@ -26,6 +26,7 @@ pub struct AssetData {
     pub date_added: String,
     pub url: String, // Usually local custom protocol url like `asset://...`
     pub tags: Vec<String>,
+    pub collections: Vec<String>,
 }
 
 #[tauri::command]
@@ -62,8 +63,21 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
     
-    let mut stmt = conn.prepare("SELECT id, title, filename, filepath, type, size, width, height, favorite, date_added, url FROM assets").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("
+        SELECT 
+            a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url,
+            (SELECT GROUP_CONCAT(t.name) FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id) as tags,
+            (SELECT GROUP_CONCAT(ac.collection_id) FROM asset_collections ac WHERE ac.asset_id = a.id) as collections
+        FROM assets a
+    ").map_err(|e| e.to_string())?;
+    
     let asset_iter = stmt.query_map([], |row| {
+        let tags_str: Option<String> = row.get(11)?;
+        let tags = tags_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
+        
+        let cols_str: Option<String> = row.get(12)?;
+        let collections = cols_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
+
         Ok(AssetData {
             id: row.get(0)?,
             title: row.get(1)?,
@@ -76,7 +90,8 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
             favorite: row.get(8)?,
             date_added: row.get(9)?,
             url: row.get(10)?,
-            tags: vec![], // We'll populate tags in a real join or separate query later
+            tags,
+            collections,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -151,6 +166,7 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
         date_added: now,
         url: url.clone(),
         tags: vec![],
+        collections: vec![],
     };
     
     // Insert into DB
