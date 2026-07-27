@@ -43,9 +43,15 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   const handleClose = async () => {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().close();
+      const win = getCurrentWindow();
+      await win.close();
     } catch (e) {
-      console.warn('Window close failed:', e);
+      console.warn('Window close failed, attempting window.close():', e);
+      try {
+        window.close();
+      } catch (err) {
+        console.error('Failed to close window:', err);
+      }
     }
   };
 

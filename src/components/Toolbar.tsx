@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   IconGrid, IconList, IconBoard, IconSearch, IconFilter,
-  IconSort, IconColumns
+  IconSort, IconColumns, IconImport
 } from './Icons';
 
 type ViewMode = 'grid' | 'list' | 'board';
@@ -24,6 +24,7 @@ interface ToolbarProps {
   onToggleImageNames?: () => void;
   colorFilter?: string;
   onColorFilterChange?: (color: string) => void;
+  onImport?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -44,6 +45,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleImageNames,
   colorFilter = 'all',
   onColorFilterChange,
+  onImport,
 }) => {
   const [localSearch, setLocalSearch] = useState(searchQuery);
   const searchDebounceRef = useRef<any>(null);
@@ -241,7 +243,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
 
-      <div className="toolbar__separator" />
+      {/* Import Media Button */}
+      {onImport && (
+        <>
+          <button
+            className="btn btn--primary"
+            onClick={onImport}
+            title="Import Media to Library"
+            style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <IconImport size={14} /> Import
+          </button>
+          <div className="toolbar__separator" />
+        </>
+      )}
 
       {/* View mode tabs */}
       <div className="view-tabs">

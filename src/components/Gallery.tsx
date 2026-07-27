@@ -1,5 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { IconEye, IconMoreHorizontal, IconStarFilled, IconStar, IconUpload, IconImage } from './Icons';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set up pdf.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 // Demo data — procedural art reference images using placeholder services
 export interface Asset {
@@ -24,6 +28,49 @@ export interface Asset {
 }
 
 
+
+const PdfThumbnailCard: React.FC<{ url: string; title: string }> = ({ url, title }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!url) return;
+
+    pdfjsLib.getDocument(url).promise.then(pdf => {
+      return pdf.getPage(1);
+    }).then(page => {
+      if (!isMounted || !canvasRef.current) return;
+      const viewport = page.getViewport({ scale: 0.5 });
+      const canvas = canvasRef.current;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        page.render({ canvasContext: ctx, viewport }).promise.then(() => {
+          if (isMounted) setLoading(false);
+        });
+      }
+    }).catch(err => {
+      console.error("Failed to render PDF thumbnail:", err);
+      if (isMounted) { setError(true); setLoading(false); }
+    });
+
+    return () => { isMounted = false; };
+  }, [url]);
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1c1c28' }}>
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', objectFit: 'cover', display: loading ? 'none' : 'block' }} />
+      {loading && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading PDF...</div>}
+      {error && <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: 8 }}>📄 {title}</div>}
+      <div style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: 'white', fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em', zIndex: 10 }}>
+        PDF
+      </div>
+    </div>
+  );
+};
 
 interface GalleryProps {
   assets: Asset[];
@@ -391,6 +438,7 @@ export const Gallery: React.FC<GalleryProps> = ({
         <div className={`gallery__layout--${viewMode}`}>
           {assets.map((asset) => {
             const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
+            const isPdf = (asset.type && asset.type.toLowerCase().includes('pdf')) || asset.filename.toLowerCase().endsWith('.pdf');
             const aspectRatio = (asset.width && asset.height) ? `${asset.width} / ${asset.height}` : '4/3';
 
             return (
@@ -412,15 +460,19 @@ export const Gallery: React.FC<GalleryProps> = ({
                     overflow: 'hidden',
                   }}
                 >
-                  <img 
-                    src={asset.url} 
-                    alt={asset.title} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                    draggable={false}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
+                  {isPdf ? (
+                    <PdfThumbnailCard url={asset.url} title={asset.title} />
+                  ) : (
+                    <img 
+                      src={asset.url} 
+                      alt={asset.title} 
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                      draggable={false}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  )}
                   {showImageNames && (
                     <div style={{
                       position: 'absolute',

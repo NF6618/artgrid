@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ArtGridNode, Viewport, ToolType, Point, NoteColor, ImageNode, NoteNode, TextNode, ShapeNode, PenNode } from '../engine/types';
+import { ArtGridNode, Viewport, ToolType, Point, NoteColor, ImageNode, NoteNode, TextNode, ShapeNode, PenNode, SectionNode } from '../engine/types';
 import { drawCanvasGrid, snapToGrid } from '../engine/grid';
 import { HistoryManager } from '../engine/history';
 import { BoardToolbar } from './BoardToolbar';
@@ -626,12 +626,34 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                if (node.type === 'note' || node.type === 'text') {
+                if (node.type === 'note' || node.type === 'text' || node.type === 'section') {
                   setEditingNodeId(node.id);
-                  setEditingText((node as any).text || '');
+                  setEditingText((node as any).title || (node as any).text || '');
                 }
               }}
             >
+              {/* SECTION WORKSPACE FRAME NODE */}
+              {node.type === 'section' && (
+                <div style={{ width: '100%', height: '100%', border: '2px dashed var(--accent-primary)', borderRadius: 8, background: 'rgba(124, 107, 240, 0.04)', position: 'relative' }}>
+                  <div style={{ background: 'var(--accent-primary)', color: 'white', padding: '4px 12px', borderTopLeftRadius: 6, borderTopRightRadius: 6, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {editingNodeId === node.id ? (
+                      <input 
+                        autoFocus
+                        value={editingText}
+                        onChange={e => setEditingText(e.target.value)}
+                        onBlur={() => {
+                          updateNodes(nodes.map(n => n.id === node.id ? { ...n, title: editingText } : n));
+                          setEditingNodeId(null);
+                        }}
+                        style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', fontWeight: 600, fontSize: '12px', width: '100%' }}
+                      />
+                    ) : (
+                      <span>{(node as SectionNode).title || 'Workspace Section'}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* IMAGE NODE */}
               {node.type === 'image' && (
                 <img

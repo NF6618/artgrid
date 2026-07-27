@@ -17,6 +17,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
 import { Titlebar } from './components/Titlebar';
 import { ImportVaultModal } from './components/ImportVaultModal';
+import { BoardsGallery } from './components/BoardsGallery';
 
 type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 type ViewMode = 'grid' | 'list' | 'board';
@@ -101,10 +102,6 @@ const App: React.FC = () => {
 
   // Metadata Store
   const { collections } = useMetadataStore();
-
-  // Inline board rename state
-  const [renamingBoardId, setRenamingBoardId] = useState<string | null>(null);
-  const [renamingTitle, setRenamingTitle] = useState('');
 
   // Handlers
   const handleSelectAsset = useCallback((asset: Asset) => {
@@ -285,6 +282,7 @@ const App: React.FC = () => {
 
   // Import Target Vault Modal state
   const [showImportVaultModal, setShowImportVaultModal] = useState(false);
+  const [isEditingBoardCanvas, setIsEditingBoardCanvas] = useState(false);
 
   // Get title based on active view
   const getViewTitle = () => {
@@ -354,6 +352,7 @@ const App: React.FC = () => {
             onSortByChange={setSortBy}
             showImageNames={showImageNames}
             onToggleImageNames={() => setShowImageNames(v => !v)}
+            onImport={importFiles}
           />
 
           {/* Main content + detail panel */}
@@ -386,22 +385,9 @@ const App: React.FC = () => {
                 onAssetsUpdated={loadAssets}
               />
             ) : activeView === 'boards' ? (
-              boards.length === 0 ? (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
-                  <div className="empty-state">
-                    <h2 className="empty-state__title">Project Boards</h2>
-                    <p className="empty-state__description">Create an infinite canvas for references, mood boards, storyboards, and world-building.</p>
-                    <div className="empty-state__action">
-                      <button className="btn btn--primary" onClick={() => createBoard('New Board')}>
-                        Create Board
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
+              isEditingBoardCanvas && activeBoardId ? (
                 <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
-
-                  {/* ── Left: Media Drawer ─────────────────────────────── */}
+                  {/* Left: Media Drawer */}
                   <div style={{
                     width: isMediaDrawerCollapsed ? 48 : 300,
                     transition: 'width 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -486,7 +472,6 @@ const App: React.FC = () => {
                               draggable
                               onDragStart={e => {
                                 const dataObj = { id: asset.id, url: asset.url, title: asset.title, width: asset.width, height: asset.height };
-                                // Store globally for reliable Tauri webview access
                                 (window as any).__artgridDragAsset = dataObj;
                                 e.dataTransfer.setData('application/json', JSON.stringify(dataObj));
                                 e.dataTransfer.setData('text/plain', asset.url);
@@ -529,77 +514,60 @@ const App: React.FC = () => {
                     )}
                   </div>
 
-                  {/* ── Right: Canvas area ─────────────────────────────── */}
-                  <div className="canvas-container" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-
-                    {/* ── Board tab strip ── */}
+                  {/* Canvas Area */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+                    {/* Canvas Header & Board Tabs */}
                     <div style={{
-                      position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
-                      display: 'flex', alignItems: 'center', gap: 4,
-                      padding: '8px 12px',
-                      background: 'rgba(18,18,22,0.85)', backdropFilter: 'blur(12px)',
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '8px 16px',
+                      background: 'var(--bg-primary)',
                       borderBottom: '1px solid var(--border-subtle)',
-                      flexWrap: 'nowrap', overflowX: 'auto',
+                      zIndex: 30,
                     }}>
-                      {boards.map(b => (
-                        <div key={b.id} style={{ display: 'flex', flexShrink: 0 }}>
-                          {renamingBoardId === b.id ? (
-                            <input
-                              autoFocus
-                              value={renamingTitle}
-                              onChange={e => setRenamingTitle(e.target.value)}
-                              onBlur={() => { renameBoard(b.id, renamingTitle || b.title); setRenamingBoardId(null); }}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') { renameBoard(b.id, renamingTitle || b.title); setRenamingBoardId(null); }
-                                if (e.key === 'Escape') setRenamingBoardId(null);
-                              }}
-                              style={{
-                                background: 'var(--bg-surface)', border: '1px solid var(--accent)',
-                                color: 'var(--text-primary)', borderRadius: '6px 0 0 6px',
-                                padding: '4px 10px', fontSize: '12px', outline: 'none',
-                                fontFamily: 'var(--font-family)', minWidth: 80,
-                              }}
-                            />
-                          ) : (
-                            <button
-                              className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--ghost'}`}
-                              onClick={() => setActiveBoard(b.id)}
-                              onDoubleClick={() => { setRenamingBoardId(b.id); setRenamingTitle(b.title); }}
-                              title="Double-click to rename"
-                              style={{ padding: '4px 12px', fontSize: '12px', borderRadius: '6px 0 0 6px', fontWeight: b.id === activeBoardId ? 600 : 400 }}
-                            >
-                              {b.title}
-                            </button>
-                          )}
+                      <button 
+                        className="btn btn--secondary" 
+                        onClick={() => setIsEditingBoardCanvas(false)}
+                        style={{ padding: '4px 10px', fontSize: '12px' }}
+                      >
+                        ← Back to All Boards
+                      </button>
+
+                      <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto' }}>
+                        {boards.map(b => (
                           <button
+                            key={b.id}
                             className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--ghost'}`}
-                            onClick={e => {
-                              e.stopPropagation();
-                              if (window.confirm(`Delete board "${b.title}"?`)) deleteBoard(b.id);
-                            }}
-                            style={{ padding: '4px 7px', fontSize: '12px', borderRadius: '0 6px 6px 0', borderLeft: '1px solid rgba(255,255,255,0.1)', opacity: 0.7 }}
-                            title="Delete board"
-                          >×</button>
-                        </div>
-                      ))}
-                      <button
-                        className="btn btn--ghost"
-                        onClick={() => createBoard('New Board')}
-                        style={{ padding: '4px 10px', fontSize: '18px', lineHeight: 1, flexShrink: 0, opacity: 0.7 }}
-                        title="New board"
-                      >+</button>
-
-
+                            onClick={() => setActiveBoard(b.id)}
+                            style={{ padding: '4px 10px', fontSize: '12px', fontWeight: b.id === activeBoardId ? 600 : 400 }}
+                          >
+                            {b.title}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    {/* ── Canvas (offset below tab strip) ── */}
-                    <div style={{ position: 'absolute', top: 45, bottom: 0, left: 0, right: 0 }}>
+                    {/* Board Canvas Area */}
+                    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
                       <BoardCanvas />
                     </div>
-
-
                   </div>
                 </div>
+              ) : (
+                <BoardsGallery
+                  boards={boards}
+                  onOpenBoard={(id) => {
+                    setActiveBoard(id);
+                    setIsEditingBoardCanvas(true);
+                  }}
+                  onCreateBoard={async (t) => {
+                    await createBoard(t);
+                    setIsEditingBoardCanvas(true);
+                  }}
+                  onRenameBoard={renameBoard}
+                  onDeleteBoard={deleteBoard}
+                />
               )
             ) : activeView === 'graph' ? (
               <div style={{
