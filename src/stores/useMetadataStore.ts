@@ -13,14 +13,18 @@ export interface Collection {
 export interface Tag {
   id: string;
   name: string;
+  collection_id?: string | null;
 }
 
 interface MetadataState {
   collections: Collection[];
   tags: Tag[];
+  tagCategoryMap: Record<string, string>; // Maps tagName -> collectionId
   isLoading: boolean;
   loadMetadata: () => Promise<void>;
   createCollection: (name: string, color: string, parent_id?: string) => Promise<Collection>;
+  createTag: (name: string, collectionId?: string) => Promise<Tag>;
+  associateTagWithCollection: (tagName: string, collectionId: string | null) => void;
   addTagToAsset: (assetId: string, tagName: string) => Promise<Tag>;
   removeTagFromAsset: (assetId: string, tagName: string) => Promise<void>;
   addAssetToCollection: (assetId: string, collectionId: string) => Promise<void>;
@@ -30,6 +34,7 @@ interface MetadataState {
 export const useMetadataStore = create<MetadataState>((set, get) => ({
   collections: [],
   tags: [],
+  tagCategoryMap: {},
   isLoading: false,
 
   loadMetadata: async () => {
@@ -51,6 +56,27 @@ export const useMetadataStore = create<MetadataState>((set, get) => ({
     const newCollection: Collection = await invoke('create_collection', { name, color, parentId: parent_id });
     await get().loadMetadata();
     return newCollection;
+  },
+
+  createTag: async (name, collectionId) => {
+    const tag: Tag = await invoke('add_tag_to_asset', { assetId: '', tagName: name });
+    if (collectionId) {
+      get().associateTagWithCollection(name, collectionId);
+    }
+    await get().loadMetadata();
+    return tag;
+  },
+
+  associateTagWithCollection: (tagName, collectionId) => {
+    set(state => {
+      const updatedMap = { ...state.tagCategoryMap };
+      if (collectionId) {
+        updatedMap[tagName] = collectionId;
+      } else {
+        delete updatedMap[tagName];
+      }
+      return { tagCategoryMap: updatedMap };
+    });
   },
 
   addTagToAsset: async (assetId, tagName) => {
@@ -79,14 +105,14 @@ function buildCollectionTree(collections: Collection[]): Collection[] {
   const map = new Map<string, Collection>();
   const roots: Collection[] = [];
 
-  collections.forEach(c => {
-    map.set(c.id, { ...c, children: [], count: 0 }); // Default count to 0
+  collections.forEach(col => {
+    map.set(col.id, { ...col, children: [] });
   });
 
-  collections.forEach(c => {
-    const node = map.get(c.id)!;
-    if (c.parent_id && map.has(c.parent_id)) {
-      map.get(c.parent_id)!.children!.push(node);
+  collections.forEach(col => {
+    const node = map.get(col.id)!;
+    if (col.parent_id && map.has(col.parent_id)) {
+      map.get(col.parent_id)!.children!.push(node);
     } else {
       roots.push(node);
     }
