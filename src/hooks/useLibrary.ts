@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Asset } from '../components/Gallery';
+import { Asset, Folder } from '../components/Gallery';
 
 export function useLibrary() {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [vaultPath, setVaultPath] = useState<string | null>(null);
 
@@ -13,6 +14,7 @@ export function useLibrary() {
     setIsLoading(true);
     try {
       const data: Asset[] = await invoke('get_assets');
+      const folderData: Folder[] = await invoke('get_folders');
       
       const now = Date.now();
       // Convert absolute local paths to asset:// protocol URLs for webview display
@@ -22,6 +24,7 @@ export function useLibrary() {
       }));
       
       setAssets(processedData);
+      setFolders(folderData);
     } catch (err) {
       console.error('Failed to load assets:', err);
     } finally {
@@ -105,6 +108,7 @@ export function useLibrary() {
 
   return {
     assets,
+    folders,
     isLoading,
     vaultPath,
     openVault,

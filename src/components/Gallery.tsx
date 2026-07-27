@@ -25,6 +25,14 @@ export interface Asset {
   notes?: string;
   archived?: boolean;
   trashed?: boolean;
+  folder_id?: string;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parent_id?: string;
+  created_at: string;
 }
 
 
@@ -82,6 +90,9 @@ interface GalleryProps {
   viewMode?: 'grid' | 'list' | 'board';
   showImageNames?: boolean;
   onAssetsUpdated?: () => void;
+  folders?: Folder[];
+  currentFolderId?: string | null;
+  onNavigateFolder?: (folderId: string | null) => void;
 }
 
 export const Gallery: React.FC<GalleryProps> = ({
@@ -93,7 +104,10 @@ export const Gallery: React.FC<GalleryProps> = ({
   onImport,
   viewMode = 'grid',
   showImageNames = true,
-  onAssetsUpdated
+  onAssetsUpdated,
+  folders = [],
+  currentFolderId = null,
+  onNavigateFolder
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -374,7 +388,23 @@ export const Gallery: React.FC<GalleryProps> = ({
             <span style={{ textAlign: 'right' }}>Actions</span>
           </div>
 
-          {assets.map((asset) => {
+          {folders.filter(f => (f.parent_id || null) === currentFolderId).map(folder => (
+            <div
+              key={folder.id}
+              className="gallery__list-row"
+              onDoubleClick={() => onNavigateFolder && onNavigateFolder(folder.id)}
+              style={{ cursor: 'pointer' }}
+            >
+              <div style={{ fontSize: 24, textAlign: 'center' }}>📁</div>
+              <div className="text-truncate" style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{folder.name}</div>
+              <div>--</div>
+              <div>--</div>
+              <div>--</div>
+              <div></div>
+            </div>
+          ))}
+
+          {assets.filter(a => (a.folder_id || null) === currentFolderId).map((asset) => {
             const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
             return (
               <div
@@ -436,7 +466,28 @@ export const Gallery: React.FC<GalleryProps> = ({
         </div>
       ) : (
         <div className={`gallery__layout--${viewMode}`}>
-          {assets.map((asset) => {
+          {/* Folders */}
+          {folders.filter(f => (f.parent_id || null) === currentFolderId).map(folder => (
+            <div
+              key={folder.id}
+              className="gallery__card gallery__card--folder"
+              onDoubleClick={() => onNavigateFolder && onNavigateFolder(folder.id)}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', padding: 16,
+                cursor: 'pointer', border: '1px solid var(--border-subtle)', aspectRatio: '1/1',
+                transition: 'all 0.2s', userSelect: 'none'
+              }}
+            >
+              <div style={{ fontSize: 48, marginBottom: 12 }}>📁</div>
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)', textAlign: 'center', fontWeight: 500 }}>
+                {folder.name}
+              </div>
+            </div>
+          ))}
+
+          {/* Assets */}
+          {assets.filter(a => (a.folder_id || null) === currentFolderId).map((asset) => {
             const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
             const isPdf = (asset.type && asset.type.toLowerCase().includes('pdf')) || asset.filename.toLowerCase().endsWith('.pdf');
             const aspectRatio = (asset.width && asset.height) ? `${asset.width} / ${asset.height}` : '4/3';

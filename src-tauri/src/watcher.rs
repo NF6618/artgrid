@@ -22,7 +22,7 @@ pub fn start_watcher(app_handle: AppHandle, vault_path: PathBuf) {
         
         // Watch the media directory
         if media_path.exists() {
-            watcher.watch(&media_path, RecursiveMode::NonRecursive).expect("Failed to watch media folder");
+            watcher.watch(&media_path, RecursiveMode::Recursive).expect("Failed to watch media folder");
             println!("ARTGRID: Started watching {:?}", media_path);
         } else {
             println!("ARTGRID: Media folder does not exist yet");
@@ -111,8 +111,8 @@ fn process_new_file(app: &AppHandle, path: PathBuf) {
     let db_lock = state.db.lock().unwrap();
     if let Some(conn) = db_lock.as_ref() {
         let res = conn.execute(
-            "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, folder_id) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL)",
             (
                 &id,
                 &filename, // keep original filename as title
@@ -130,6 +130,11 @@ fn process_new_file(app: &AppHandle, path: PathBuf) {
         
         if res.is_ok() {
             println!("ARTGRID: Successfully watched and imported {:?}", new_filename);
+            
+            if let Some(pipeline) = app.try_state::<crate::ai::pipeline::AiPipeline>() {
+                pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { asset_id: id.clone() });
+            }
+
             // Notify frontend
             let _ = app.emit("vault-updated", ());
         } else {

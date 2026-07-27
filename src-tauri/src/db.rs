@@ -32,6 +32,18 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN trashed BOOLEAN DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN palette TEXT", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN color_profile TEXT", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL", []);
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS folders (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (parent_id) REFERENCES folders (id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS collections (

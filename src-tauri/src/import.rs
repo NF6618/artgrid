@@ -32,6 +32,7 @@ pub struct AssetData {
     pub collections: Vec<String>,
     pub palette: Option<Vec<String>>,
     pub color_profile: Option<String>,
+    pub folder_id: Option<String>,
 }
 
 fn extract_color_palette(path: &PathBuf) -> (Option<Vec<String>>, Option<String>) {
@@ -145,7 +146,8 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
         SELECT 
             a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url, a.notes, a.archived, a.trashed, a.palette, a.color_profile,
             (SELECT GROUP_CONCAT(t.name) FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id) as tags,
-            (SELECT GROUP_CONCAT(ac.collection_id) FROM asset_collections ac WHERE ac.asset_id = a.id) as collections
+            (SELECT GROUP_CONCAT(ac.collection_id) FROM asset_collections ac WHERE ac.asset_id = a.id) as collections,
+            a.folder_id
         FROM assets a
     ").map_err(|e| e.to_string())?;
     
@@ -158,6 +160,7 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
         
         let cols_str: Option<String> = row.get(17)?;
         let collections = cols_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
+        let folder_id: Option<String> = row.get(18)?;
 
         Ok(AssetData {
             id: row.get(0)?,
@@ -178,6 +181,7 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
             color_profile,
             tags,
             collections,
+            folder_id,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -190,7 +194,7 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
 }
 
 #[tauri::command]
-pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<AssetData, String> {
+pub fn import_file(file_path: String, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<AssetData, String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
     
@@ -263,12 +267,13 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
         color_profile: color_profile.clone(),
         tags: vec![],
         collections: vec![],
+        folder_id: None,
     };
     
     // Insert into DB
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         (
             &asset.id,
             &asset.title,
@@ -283,14 +288,21 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
             &asset.url,
             &palette_json,
             &color_profile,
+            &asset.folder_id,
         ),
     ).map_err(|e| e.to_string())?;
+
+    if let Some(pipeline) = app.try_state::<crate::ai::pipeline::AiPipeline>() {
+        pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { asset_id: asset.id.clone() });
+    }
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
     
     Ok(asset)
 }
 
 #[tauri::command]
-pub fn toggle_favorite(id: String, state: State<'_, AppState>) -> Result<bool, String> {
+pub fn toggle_favorite(id: String, state: State<'_, AppState>, app: AppHandle) -> Result<bool, String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
     
@@ -306,6 +318,9 @@ pub fn toggle_favorite(id: String, state: State<'_, AppState>) -> Result<bool, S
             (&new_favorite, &id),
         ).map_err(|e| e.to_string())?;
         
+        use tauri::Emitter;
+        app.emit("vault-updated", ()).ok();
+
         return Ok(new_favorite);
     }
     
@@ -376,8 +391,8 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
     };
     
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
         (
             &asset.id,
             &asset.title,
@@ -402,7 +417,7 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
 }
 
 #[tauri::command]
-pub fn save_base64_image_asset(title: String, base64_data: String, state: State<'_, AppState>) -> Result<AssetData, String> {
+pub fn save_base64_image_asset(title: String, base64_data: String, state: State<'_, AppState>, app: AppHandle) -> Result<AssetData, String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
     
@@ -464,8 +479,8 @@ pub fn save_base64_image_asset(title: String, base64_data: String, state: State<
     };
 
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
         (
             &asset.id,
             &asset.title,
@@ -486,11 +501,14 @@ pub fn save_base64_image_asset(title: String, base64_data: String, state: State<
         ),
     ).map_err(|e| e.to_string())?;
 
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+
     Ok(asset)
 }
 
 #[tauri::command]
-pub fn save_text_asset(title: String, text_content: String, state: State<'_, AppState>) -> Result<AssetData, String> {
+pub fn save_text_asset(title: String, text_content: String, state: State<'_, AppState>, app: AppHandle) -> Result<AssetData, String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
     
@@ -539,8 +557,8 @@ pub fn save_text_asset(title: String, text_content: String, state: State<'_, App
     };
 
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
         (
             &asset.id,
             &asset.title,
@@ -561,11 +579,14 @@ pub fn save_text_asset(title: String, text_content: String, state: State<'_, App
         ),
     ).map_err(|e| e.to_string())?;
 
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+
     Ok(asset)
 }
 
 #[tauri::command]
-pub fn update_asset_notes(id: String, notes: String, state: State<'_, AppState>) -> Result<(), String> {
+pub fn update_asset_notes(id: String, notes: String, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
 
@@ -574,11 +595,14 @@ pub fn update_asset_notes(id: String, notes: String, state: State<'_, AppState>)
         (&notes, &id),
     ).map_err(|e| e.to_string())?;
 
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+
     Ok(())
 }
 
 #[tauri::command]
-pub fn archive_asset(id: String, archived: bool, state: State<'_, AppState>) -> Result<(), String> {
+pub fn archive_asset(id: String, archived: bool, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
 
@@ -587,11 +611,14 @@ pub fn archive_asset(id: String, archived: bool, state: State<'_, AppState>) -> 
         (&archived, &id),
     ).map_err(|e| e.to_string())?;
 
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+
     Ok(())
 }
 
 #[tauri::command]
-pub fn trash_asset(id: String, trashed: bool, state: State<'_, AppState>) -> Result<(), String> {
+pub fn trash_asset(id: String, trashed: bool, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
 
@@ -600,11 +627,14 @@ pub fn trash_asset(id: String, trashed: bool, state: State<'_, AppState>) -> Res
         (&trashed, &id),
     ).map_err(|e| e.to_string())?;
 
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+
     Ok(())
 }
 
 #[tauri::command]
-pub fn rename_asset(id: String, new_title: String, new_filename: String, state: State<'_, AppState>) -> Result<(), String> {
+pub fn rename_asset(id: String, new_title: String, new_filename: String, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
 
@@ -636,6 +666,9 @@ pub fn rename_asset(id: String, new_title: String, new_filename: String, state: 
         "UPDATE assets SET title = ?1, filename = ?2, filepath = ?3, url = ?4 WHERE id = ?5",
         (&new_title, &formatted_new_filename, &new_rel_path.to_string_lossy().into_owned(), &new_url, &id),
     ).map_err(|e| e.to_string())?;
+
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
 
     Ok(())
 }
@@ -736,21 +769,29 @@ pub fn purge_all_data(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn open_standalone_window(app: AppHandle, asset_id: String, title: String) -> Result<(), String> {
-    let sanitized_id: String = asset_id.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+pub fn open_standalone_window(app: AppHandle, asset_id: Option<String>, title: Option<String>) -> Result<(), String> {
+    let safe_id = asset_id.clone().unwrap_or_else(|| "all".to_string());
+    let safe_title = title.unwrap_or_else(|| "Media".to_string());
+    let sanitized_id: String = safe_id.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
     let window_label = format!("viewer_{}_{}", sanitized_id, Utc::now().timestamp_millis());
 
     // Retrieve active main window URL to support both Dev mode (http://localhost:1420/) and Production (tauri://localhost/)
     let main_window = app.get_webview_window("main");
     let target_url = if let Some(main_win) = main_window {
         if let Ok(mut url) = main_win.url() {
-            url.set_query(Some(&format!("previewAssetId={}", asset_id)));
+            if let Some(id) = &asset_id {
+                url.set_query(Some(&format!("previewAssetId={}", id)));
+            } else {
+                url.set_query(Some("mediaViewer=true"));
+            }
             tauri::WebviewUrl::External(url)
         } else {
-            tauri::WebviewUrl::App(format!("index.html?previewAssetId={}", asset_id).into())
+            let query = if let Some(id) = &asset_id { format!("previewAssetId={}", id) } else { "mediaViewer=true".to_string() };
+            tauri::WebviewUrl::App(format!("index.html?{}", query).into())
         }
     } else {
-        tauri::WebviewUrl::App(format!("index.html?previewAssetId={}", asset_id).into())
+        let query = if let Some(id) = &asset_id { format!("previewAssetId={}", id) } else { "mediaViewer=true".to_string() };
+        tauri::WebviewUrl::App(format!("index.html?{}", query).into())
     };
 
     println!("ARTGRID: Spawning standalone window '{}' with URL {:?}", window_label, target_url);
@@ -760,7 +801,7 @@ pub fn open_standalone_window(app: AppHandle, asset_id: String, title: String) -
         window_label,
         target_url
     )
-    .title(format!("ArtGrid Media Viewer — {}", title))
+    .title(format!("ArtGrid Media Viewer — {}", safe_title))
     .inner_size(1200.0, 850.0)
     .decorations(true)
     .resizable(true)

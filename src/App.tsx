@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [showDetailPanel, setShowDetailPanel] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
   const { isLoaded, loadSettings, vaultPath: savedVaultPath, defaultView, compactMode, updateSettings, addVault } = useSettingsStore();
 
@@ -43,7 +44,7 @@ const App: React.FC = () => {
   }, [loadSettings]);
 
   // Library state via Tauri
-  const { assets, vaultPath, setVaultPath, openVault, loadVault, importFiles, setAssets, loadAssets } = useLibrary();
+  const { assets, folders, vaultPath, setVaultPath, openVault, loadVault, importFiles, setAssets, loadAssets } = useLibrary();
 
   // Auto load saved vault on startup
   React.useEffect(() => {
@@ -112,6 +113,8 @@ const App: React.FC = () => {
   // Check if running in Standalone Window Mode
   const urlParams = new URLSearchParams(window.location.search);
   const standaloneAssetId = urlParams.get('previewAssetId');
+  const isMediaViewer = urlParams.get('mediaViewer') === 'true';
+  const isStandaloneWindow = !!standaloneAssetId || isMediaViewer;
   
   // Standalone Tab Mode
   const isStandaloneTab = urlParams.get('standaloneTab') === 'true';
@@ -155,6 +158,8 @@ const App: React.FC = () => {
         if (found && !standaloneAsset) {
           setStandaloneAsset(found);
         }
+      } else if (isMediaViewer && processed.length > 0 && !standaloneAsset) {
+        setStandaloneAsset(processed[0]);
       }
     } catch (err) {
       if (retriesLeft > 0) {
@@ -166,9 +171,19 @@ const App: React.FC = () => {
   }, [standaloneAssetId, standaloneAsset]);
 
   useEffect(() => {
-    if (!standaloneAssetId) return;
+    if (!isStandaloneWindow) return;
     loadStandaloneAssets();
-  }, [standaloneAssetId]);
+
+    // Listen for cross-window state updates
+    const unlisten = listen('vault-updated', () => {
+      console.log('Vault updated event received in standalone window, reloading assets...');
+      loadStandaloneAssets();
+    });
+
+    return () => {
+      unlisten.then(f => f());
+    };
+  }, [isStandaloneWindow, loadStandaloneAssets]);
   
   const { boards, activeBoardId, loadBoards, createBoard, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
   const currentBoardId = activeBoardIdOverride || activeBoardId;
@@ -388,7 +403,7 @@ const App: React.FC = () => {
   };
 
   // Standalone Window Mode Render (100% full window studio view)
-  if (standaloneAssetId) {
+  if (isStandaloneWindow) {
     const handleStandaloneSelectAsset = (asset: Asset) => {
       setStandaloneAsset(asset);
     };
@@ -406,7 +421,7 @@ const App: React.FC = () => {
               asset={standaloneAsset}
               allAssets={standaloneAllAssets}
               visible={true}
-              isPopOutWindow={true}
+              isPopOutWindow={false}
               onClose={async () => {
                 try {
                   const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -489,8 +504,8 @@ const App: React.FC = () => {
           onSearchChange={setSearchQuery}
           showDetailPanel={showDetailPanel}
           onToggleDetailPanel={handleToggleDetailPanel}
-          title={getViewTitle()}
-          itemCount={filteredAssets.length}
+          title={currentFolderId ? folders.find(f => f.id === currentFolderId)?.name || 'Folder' : getViewTitle()}
+          itemCount={filteredAssets.filter(a => (a.folder_id || null) === currentFolderId).length}
           onRefresh={loadAssets}
           filterType={filterType}
           onFilterTypeChange={setFilterType}
@@ -501,9 +516,14 @@ const App: React.FC = () => {
           showImageNames={showImageNames}
           onToggleImageNames={() => setShowImageNames(v => !v)}
           onImport={importFiles}
-          canGoBack={false}
+          canGoBack={currentFolderId !== null}
           canGoForward={false}
-          onGoBack={handleGoBack}
+          onGoBack={() => {
+            if (currentFolderId) {
+              const currentFolder = folders.find(f => f.id === currentFolderId);
+              setCurrentFolderId(currentFolder?.parent_id || null);
+            }
+          }}
           onGoForward={handleGoForward}
         />
 
@@ -535,6 +555,9 @@ const App: React.FC = () => {
                 viewMode={viewMode}
                 showImageNames={showImageNames}
                 onAssetsUpdated={loadAssets}
+                folders={folders}
+                currentFolderId={currentFolderId}
+                onNavigateFolder={setCurrentFolderId}
               />
             ) : activeView === 'boards' ? (
               currentBoardId ? (

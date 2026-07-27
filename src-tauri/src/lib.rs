@@ -12,6 +12,8 @@ mod import;
 mod watcher;
 mod board;
 mod metadata;
+mod ai;
+mod folders;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,6 +43,9 @@ pub fn run() {
                 db: Mutex::new(None),
                 vault_path: Mutex::new(None),
             });
+            
+            // Initialize and manage AI Pipeline
+            app.manage(ai::pipeline::AiPipeline::new(app.handle().clone()));
             
             Ok(())
         })
@@ -75,7 +80,12 @@ pub fn run() {
             metadata::add_tag_to_asset,
             metadata::remove_tag_from_asset,
             metadata::add_asset_to_collection,
-            metadata::remove_asset_from_collection
+            metadata::remove_asset_from_collection,
+            ai::pipeline::ai_remove_background,
+            ai::pipeline::ai_upscale_image,
+            ai::pipeline::ai_extract_text,
+            folders::get_folders,
+            folders::create_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
