@@ -12,6 +12,8 @@ mod import;
 mod watcher;
 
 
+mod board;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Force WebView2 to use a unique temporary data folder to fix 0x800700AA (The requested resource is in use)
@@ -44,7 +46,11 @@ pub fn run() {
             import::open_vault,
             import::get_assets,
             import::import_file,
-            import::toggle_favorite
+            import::toggle_favorite,
+            board::get_boards,
+            board::create_board,
+            board::save_board,
+            board::delete_board
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

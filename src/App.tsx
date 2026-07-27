@@ -10,6 +10,7 @@ import { BoardNode } from './types/board';
 import { invoke } from '@tauri-apps/api/core';
 
 import { useLibrary } from './hooks/useLibrary';
+import { useBoardStore } from './stores/useBoardStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
 
@@ -35,8 +36,18 @@ const App: React.FC = () => {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Board state
-  const [boardNodes, setBoardNodes] = useState<BoardNode[]>([]);
+  // Board state via Zustand
+  const { boards, activeBoardId, loadBoards, createBoard, updateBoardNodes, setActiveBoard } = useBoardStore();
+  const activeBoard = boards.find(b => b.id === activeBoardId);
+
+  // Load boards when vault is available
+  React.useEffect(() => {
+    if (vaultPath) {
+      loadBoards();
+    }
+  }, [vaultPath, loadBoards]);
+
+  // Canvas Tools
   const [activeTool, setActiveTool] = useState<ToolType>('select');
 
   // Handlers
@@ -127,7 +138,7 @@ const App: React.FC = () => {
           onSettings={() => setShowSettings(true)}
           stats={{
             library: assets.length,
-            boards: 0, // Mocked for now until Phase 4 (Boards db)
+            boards: boards.length,
             favorites: assets.filter(a => a.favorite).length,
             untagged: assets.filter(a => !a.tags || a.tags.length === 0).length,
           }}
@@ -174,16 +185,47 @@ const App: React.FC = () => {
                 onImport={importFiles}
               />
             ) : activeView === 'boards' ? (
-              <div className="canvas-container">
-                <div className="canvas-container__grid" />
-                {/* Canvas Implementation */}
-                <BoardCanvas 
-                  nodes={boardNodes}
-                  onNodesChange={setBoardNodes}
-                  activeTool={activeTool}
-                />
+              boards.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
+                  <div className="empty-state">
+                    <h2 className="empty-state__title">Mood Boards</h2>
+                    <p className="empty-state__description">Create a new infinite canvas.</p>
+                    <div className="empty-state__action">
+                      <button className="btn btn--primary" onClick={() => createBoard('New Board')}>
+                        Create Board
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="canvas-container">
+                  <div className="canvas-container__grid" />
+                  
+                  {/* Board Tabs (Simple implementation for switching) */}
+                  <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10, display: 'flex', gap: '8px' }}>
+                    {boards.map(b => (
+                      <button 
+                        key={b.id} 
+                        className={`btn ${b.id === activeBoardId ? 'btn--primary' : ''}`}
+                        onClick={() => setActiveBoard(b.id)}
+                        style={{ padding: '4px 12px', fontSize: '12px' }}
+                      >
+                        {b.title}
+                      </button>
+                    ))}
+                    <button className="btn" onClick={() => createBoard('New Board')} style={{ padding: '4px 8px' }}>+</button>
+                  </div>
 
-                {/* Canvas floating toolbar */}
+                  {/* Canvas Implementation */}
+                  <BoardCanvas 
+                    nodes={activeBoard?.nodes || []}
+                    onNodesChange={(nodes) => {
+                      if (activeBoardId) updateBoardNodes(activeBoardId, nodes);
+                    }}
+                    activeTool={activeTool}
+                  />
+
+                  {/* Canvas floating toolbar */}
                 <div className="canvas-toolbar">
                   <button 
                     className={`toolbar__btn ${activeTool === 'select' ? 'toolbar__btn--active' : ''}`} 
@@ -228,6 +270,7 @@ const App: React.FC = () => {
                   }} />
                 </div>
               </div>
+              )
             ) : activeView === 'graph' ? (
               <div style={{
                 flex: 1,

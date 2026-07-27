@@ -61,5 +61,16 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS boards (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            nodes_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
     Ok(conn)
 }
