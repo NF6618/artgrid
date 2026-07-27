@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{State, AppHandle};
 use uuid::Uuid;
 use chrono::Utc;
 
@@ -29,7 +29,7 @@ pub struct AssetData {
 }
 
 #[tauri::command]
-pub fn open_vault(path: String, state: State<'_, AppState>) -> Result<String, String> {
+pub fn open_vault(path: String, state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
     let vault_dir = PathBuf::from(&path);
     
     // Create vault directory if it doesn't exist
@@ -49,7 +49,10 @@ pub fn open_vault(path: String, state: State<'_, AppState>) -> Result<String, St
     
     // Update State
     *state.db.lock().unwrap() = Some(conn);
-    *state.vault_path.lock().unwrap() = Some(vault_dir);
+    *state.vault_path.lock().unwrap() = Some(vault_dir.clone());
+    
+    // Start background file watcher
+    crate::watcher::start_watcher(app, vault_dir);
     
     Ok("Vault opened successfully".to_string())
 }
@@ -100,7 +103,12 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
     
     let filename = source_path.file_name().unwrap().to_string_lossy().into_owned();
     let id = Uuid::new_v4().to_string();
-    let ext = source_path.extension().unwrap_or_default().to_string_lossy().into_owned();
+    let ext = source_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+    
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf"];
+    if !supported_exts.contains(&ext.as_str()) {
+        return Err("Unsupported file type".to_string());
+    }
     
     let new_filename = format!("{}.{}", id, ext);
     let dest_rel_path = PathBuf::from("media").join(&new_filename);
@@ -124,12 +132,18 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
     // For now we'll just store the absolute path and format it in JS
     let url = dest_abs_path.to_string_lossy().into_owned(); 
     
+    let type_ = match ext.as_str() {
+        "md" | "txt" => "text/plain".to_string(),
+        "pdf" => "application/pdf".to_string(),
+        _ => format!("image/{}", ext)
+    };
+    
     let asset = AssetData {
         id: id.clone(),
         title: filename.clone(),
         filename: filename.clone(),
         filepath: dest_rel_path.to_string_lossy().into_owned(),
-        type_: format!("image/{}", ext),
+        type_,
         size: size_str,
         width,
         height,
