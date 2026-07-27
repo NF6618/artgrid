@@ -1,27 +1,113 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useMetadataStore } from '../stores/useMetadataStore';
 import { Asset } from './Gallery';
-import { IconClose, IconPlus } from './Icons';
+import { IconClose, IconPlus, IconArchive, IconTrash } from './Icons';
+import { invoke } from '@tauri-apps/api/core';
 
 interface DetailPanelProps {
   asset: Asset | null;
   visible: boolean;
   onClose: () => void;
+  onAssetsUpdated?: () => void;
 }
 
-export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClose }) => {
+export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClose, onAssetsUpdated }) => {
   const { addTagToAsset, removeTagFromAsset, collections, addAssetToCollection, removeAssetFromCollection } = useMetadataStore();
   const [newTag, setNewTag] = useState('');
   const [isAddingTag, setIsAddingTag] = useState(false);
 
+  // Notes state & debouncing
+  const [notesText, setNotesText] = useState('');
+  const debounceTimerRef = useRef<any>(null);
+
+  // Title & Filename editing state
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [isEditingFilename, setIsEditingFilename] = useState(false);
+  const [editFilename, setEditFilename] = useState('');
+
+  useEffect(() => {
+    if (asset) {
+      setNotesText(asset.notes || '');
+      setEditTitle(asset.title);
+      setEditFilename(asset.filename);
+      setIsEditingTitle(false);
+      setIsEditingFilename(false);
+    }
+  }, [asset]);
+
+  const handleNotesChange = (text: string) => {
+    setNotesText(text);
+    if (!asset) return;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        await invoke('update_asset_notes', { id: asset.id, notes: text });
+        if (onAssetsUpdated) onAssetsUpdated();
+      } catch (err) {
+        console.error('Failed to update asset notes:', err);
+      }
+    }, 400);
+  };
+
   const handleAddTag = async () => {
     if (newTag.trim() && asset) {
       await addTagToAsset(asset.id, newTag.trim());
-      if (!asset.tags.includes(newTag.trim())) {
-        asset.tags.push(newTag.trim());
-      }
       setNewTag('');
       setIsAddingTag(false);
+      if (onAssetsUpdated) onAssetsUpdated();
+    }
+  };
+
+  const handleRemoveTag = async (tagName: string) => {
+    if (!asset) return;
+    await removeTagFromAsset(asset.id, tagName);
+    if (onAssetsUpdated) onAssetsUpdated();
+  };
+
+  const handleSaveTitle = async () => {
+    if (!asset || !editTitle.trim()) return;
+    try {
+      await invoke('rename_asset', { id: asset.id, newTitle: editTitle.trim(), newFilename: asset.filename });
+      setIsEditingTitle(false);
+      if (onAssetsUpdated) onAssetsUpdated();
+    } catch (err) {
+      console.error('Failed to rename asset title:', err);
+    }
+  };
+
+  const handleSaveFilename = async () => {
+    if (!asset || !editFilename.trim()) return;
+    try {
+      await invoke('rename_asset', { id: asset.id, newTitle: asset.title, newFilename: editFilename.trim() });
+      setIsEditingFilename(false);
+      if (onAssetsUpdated) onAssetsUpdated();
+    } catch (err) {
+      console.error('Failed to rename asset filename:', err);
+    }
+  };
+
+  const handleToggleArchive = async () => {
+    if (!asset) return;
+    try {
+      await invoke('archive_asset', { id: asset.id, archived: !asset.archived });
+      if (onAssetsUpdated) onAssetsUpdated();
+    } catch (err) {
+      console.error('Failed to toggle archive:', err);
+    }
+  };
+
+  const handleToggleTrash = async () => {
+    if (!asset) return;
+    try {
+      await invoke('trash_asset', { id: asset.id, trashed: !asset.trashed });
+      if (onAssetsUpdated) onAssetsUpdated();
+    } catch (err) {
+      console.error('Failed to toggle trash:', err);
     }
   };
 
@@ -62,9 +148,27 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
     <div className="detail-panel">
       <div className="detail-panel__header">
         <span className="detail-panel__title">Details</span>
-        <button className="detail-panel__close" onClick={onClose}>
-          <IconClose size={12} />
-        </button>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button 
+            className="toolbar__btn" 
+            title={asset.archived ? "Unarchive" : "Archive Asset"} 
+            onClick={handleToggleArchive}
+            style={{ color: asset.archived ? 'var(--accent-primary)' : 'inherit' }}
+          >
+            <IconArchive size={14} />
+          </button>
+          <button 
+            className="toolbar__btn" 
+            title={asset.trashed ? "Restore from Trash" : "Move to Trash"} 
+            onClick={handleToggleTrash}
+            style={{ color: asset.trashed ? 'var(--color-error)' : 'inherit' }}
+          >
+            <IconTrash size={14} />
+          </button>
+          <button className="detail-panel__close" onClick={onClose}>
+            <IconClose size={12} />
+          </button>
+        </div>
       </div>
 
       {/* Preview */}
@@ -72,7 +176,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div
           style={{
             width: '100%',
-            aspectRatio: `${asset.width}/${asset.height}`,
+            aspectRatio: `${asset.width || 4}/${asset.height || 3}`,
             maxHeight: 200,
             background: generateGradient(asset.palette),
             borderRadius: 'var(--radius-md)',
@@ -83,29 +187,58 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
             justifyContent: 'center',
           }}
         >
-          <div style={{
-            position: 'absolute',
-            inset: 0,
-            opacity: 0.12,
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.5'/%3E%3C/svg%3E")`,
-          }} />
           <img src={asset.url} alt={asset.title} style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
       </div>
 
       {/* Scrollable content */}
       <div className="detail-panel__content">
-        {/* Title */}
+        {/* Info & Renaming Section */}
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Info</div>
+          
+          {/* Title Field */}
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Name</span>
-            <span className="detail-panel__field-value">{asset.title}</span>
+            {isEditingTitle ? (
+              <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+                <input 
+                  autoFocus
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveTitle()}
+                  style={{ flex: 1, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', padding: '2px 6px', borderRadius: 4 }}
+                />
+                <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={handleSaveTitle}>Save</button>
+              </div>
+            ) : (
+              <span className="detail-panel__field-value" style={{ cursor: 'pointer' }} onClick={() => setIsEditingTitle(true)} title="Click to rename title">
+                {asset.title} ✏️
+              </span>
+            )}
           </div>
+
+          {/* Filename Field */}
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Filename</span>
-            <span className="detail-panel__field-value">{asset.filename}</span>
+            {isEditingFilename ? (
+              <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+                <input 
+                  autoFocus
+                  value={editFilename}
+                  onChange={e => setEditFilename(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveFilename()}
+                  style={{ flex: 1, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', padding: '2px 6px', borderRadius: 4 }}
+                />
+                <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={handleSaveFilename}>Save</button>
+              </div>
+            ) : (
+              <span className="detail-panel__field-value" style={{ cursor: 'pointer' }} onClick={() => setIsEditingFilename(true)} title="Click to rename filename">
+                {asset.filename} ✏️
+              </span>
+            )}
           </div>
+
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Type</span>
             <span className="detail-panel__field-value">{asset.type}</span>
@@ -128,12 +261,12 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Tags</div>
           <div className="tags">
-            {asset.tags.map(tag => (
+            {(asset.tags || []).map(tag => (
               <span key={tag} className="tag">
                 {tag}
                 <span 
                   style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
-                  onClick={() => removeTagFromAsset(asset.id, tag)}
+                  onClick={() => handleRemoveTag(tag)}
                 >
                   ×
                 </span>
@@ -146,7 +279,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
                 onChange={e => setNewTag(e.target.value)}
                 onBlur={handleAddTag}
                 onKeyDown={e => e.key === 'Enter' && handleAddTag()}
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', width: 60, padding: '2px 4px', fontSize: '10px' }}
+                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', width: 80, padding: '2px 4px', fontSize: '10px' }}
               />
             ) : (
               <span className="tag tag--add" onClick={() => setIsAddingTag(true)}>
@@ -157,41 +290,16 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
           </div>
         </div>
 
-        {/* Color Palette */}
-        <div className="detail-panel__section">
-          <div className="detail-panel__section-title">Color Palette</div>
-          <div className="palette">
-            {(asset.palette || []).map((color, i) => (
-              <div
-                key={i}
-                className="palette__swatch"
-                style={{ background: color }}
-                title={color}
-                onClick={() => navigator.clipboard.writeText(color)}
-              />
-            ))}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginTop: 'var(--space-1)' }}>
-            {(asset.palette || []).map((color, i) => (
-              <span key={i} style={{
-                fontSize: '10px',
-                color: 'var(--text-muted)',
-                fontFamily: 'var(--font-mono)',
-              }}>
-                {color}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Notes */}
+        {/* Notes (Debounced SQLite Persistence) */}
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Notes</div>
           <textarea
             placeholder="Add notes about this asset..."
+            value={notesText}
+            onChange={(e) => handleNotesChange(e.target.value)}
             style={{
               width: '100%',
-              minHeight: 80,
+              minHeight: 90,
               padding: 'var(--space-2)',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-subtle)',
@@ -210,7 +318,6 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
           <div className="detail-panel__section-title">Collections</div>
           <div className="tags">
             {asset.collections?.map(colId => {
-               // Find collection name in store (flatten the tree for simplicity or just search)
                const findName = (cols: any[], id: string): string => {
                  for (const c of cols) {
                    if (c.id === id) return c.name;
@@ -227,7 +334,10 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
                    {colName}
                    <span 
                      style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
-                     onClick={() => removeAssetFromCollection(asset.id, colId)}
+                     onClick={async () => {
+                       await removeAssetFromCollection(asset.id, colId);
+                       if (onAssetsUpdated) onAssetsUpdated();
+                     }}
                    >
                      ×
                    </span>
@@ -239,9 +349,10 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
               className="tag tag--add" 
               style={{ background: 'transparent', border: '1px dashed var(--border-subtle)', outline: 'none', cursor: 'pointer' }}
               value=""
-              onChange={(e) => {
+              onChange={async (e) => {
                 if (e.target.value) {
-                  addAssetToCollection(asset.id, e.target.value);
+                  await addAssetToCollection(asset.id, e.target.value);
+                  if (onAssetsUpdated) onAssetsUpdated();
                 }
               }}
             >

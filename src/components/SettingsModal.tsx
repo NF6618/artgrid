@@ -19,7 +19,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [hasChanges, setHasChanges] = useState(false);
 
-  const { theme, defaultView, autoWatch, compactMode, updateSettings } = useSettingsStore();
+  const { theme, defaultView, autoWatch, compactMode, vaults, updateSettings, removeVault } = useSettingsStore();
 
   const [settings, setSettings] = useState<Partial<AppSettings>>({
     theme,
@@ -173,41 +173,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {activeTab === 'vaults' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                <div>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Active Vault
-                  </h3>
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between',
-                    backgroundColor: 'rgba(255,255,255,0.05)',
-                    padding: '12px',
-                    borderRadius: 6,
-                    border: '1px solid var(--border-subtle)'
-                  }}>
-                    <div style={{ 
-                      fontFamily: 'monospace', 
-                      fontSize: '0.85rem',
-                      color: 'var(--text-primary)',
-                      wordBreak: 'break-all',
-                      paddingRight: 16
-                    }}>
-                      {vaultPath || 'No vault loaded.'}
-                    </div>
-                    <button className="btn btn--secondary" onClick={onChangeVault}>
-                      Switch Vault
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Known Vaults
                   </h3>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>
-                    Multiple vault tracking will appear here in Phase 5.
-                  </div>
+                  <button className="btn btn--primary" onClick={onChangeVault} style={{ padding: '6px 12px', fontSize: '12px' }}>
+                    + Add / Switch Vault
+                  </button>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {vaults && vaults.length > 0 ? vaults.map(v => (
+                    <div key={v.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, background: 'var(--bg-secondary)', borderRadius: 6, border: v.path === vaultPath ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)' }}>
+                      <div style={{ overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                          {v.name} 
+                          {v.path === vaultPath && <span style={{ fontSize: '10px', background: 'var(--accent-primary)', padding: '2px 6px', borderRadius: 4, marginLeft: 8 }}>ACTIVE</span>}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{v.path}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {v.path !== vaultPath && (
+                          <button className="btn btn--secondary" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={async () => {
+                            await updateSettings({ vaultPath: v.path });
+                            window.location.reload();
+                          }}>Open</button>
+                        )}
+                        <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--color-error)' }} onClick={() => {
+                          if (window.confirm(`Remove vault "${v.name}" from the list? This will not delete your files.`)) {
+                            removeVault(v.id);
+                          }
+                        }}>Remove</button>
+                      </div>
+                    </div>
+                  )) : (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', padding: 24 }}>No saved vaults.</div>
+                  )}
                 </div>
               </div>
             )}
@@ -246,11 +247,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                      <input type="color" defaultValue="#0a0a0f" onChange={(e) => document.documentElement.style.setProperty('--bg-base', e.target.value)} />
+                      <input 
+                        type="color" 
+                        value={settings.bgBaseColor || '#0a0a0f'} 
+                        onChange={(e) => { 
+                          setSettings({...settings, bgBaseColor: e.target.value}); 
+                          setHasChanges(true); 
+                          document.documentElement.style.setProperty('--bg-base', e.target.value);
+                        }} 
+                      />
                       <span>Background Base</span>
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                      <input type="color" defaultValue="#7c6bf0" onChange={(e) => document.documentElement.style.setProperty('--accent-primary', e.target.value)} />
+                      <input 
+                        type="color" 
+                        value={settings.accentColor || '#7c6bf0'} 
+                        onChange={(e) => { 
+                          setSettings({...settings, accentColor: e.target.value}); 
+                          setHasChanges(true); 
+                          document.documentElement.style.setProperty('--accent-primary', e.target.value);
+                        }} 
+                      />
                       <span>Accent Color</span>
                     </label>
                   </div>
@@ -283,13 +300,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     Database Operations
                   </h3>
                   <div style={{ display: 'flex', gap: 12 }}>
-                    <button className="btn btn--secondary" onClick={() => alert('Exporting Database...')}>
+                    <button 
+                      className="btn btn--secondary" 
+                      onClick={async () => {
+                        try {
+                          const { save } = await import('@tauri-apps/plugin-dialog');
+                          const dest = await save({ defaultPath: 'artgrid_backup.db', title: 'Export Database Backup' });
+                          if (dest) {
+                            const { invoke } = await import('@tauri-apps/api/core');
+                            await invoke('export_db_backup', { destinationPath: dest });
+                            alert('Database backup exported successfully!');
+                          }
+                        } catch (e: any) {
+                          alert('Failed to export backup: ' + e);
+                        }
+                      }}
+                    >
                       Export DB Backup
                     </button>
-                    <button className="btn btn--secondary" onClick={() => alert('Importing Database...')}>
+                    <button 
+                      className="btn btn--secondary" 
+                      onClick={async () => {
+                        try {
+                          const { open } = await import('@tauri-apps/plugin-dialog');
+                          const src = await open({ title: 'Import Database Backup', multiple: false });
+                          if (src && typeof src === 'string') {
+                            const { invoke } = await import('@tauri-apps/api/core');
+                            await invoke('import_db_backup', { sourcePath: src });
+                            alert('Database backup imported successfully! Reloading...');
+                            window.location.reload();
+                          }
+                        } catch (e: any) {
+                          alert('Failed to import backup: ' + e);
+                        }
+                      }}
+                    >
                       Import DB Backup
                     </button>
-                    <button className="btn btn--secondary" style={{ color: 'var(--color-error)' }} onClick={() => alert('Clearing Cache...')}>
+                    <button 
+                      className="btn btn--secondary" 
+                      style={{ color: 'var(--color-error)' }} 
+                      onClick={async () => {
+                        try {
+                          const { invoke } = await import('@tauri-apps/api/core');
+                          await invoke('clear_temp_cache');
+                          alert('Temporary cache cleared successfully.');
+                        } catch (e: any) {
+                          alert('Failed to clear cache: ' + e);
+                        }
+                      }}
+                    >
                       Clear Cache
                     </button>
                   </div>

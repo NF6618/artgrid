@@ -5,6 +5,7 @@ import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { BoardCanvas } from './components/BoardCanvas';
+import { v4 as uuidv4 } from 'uuid';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
@@ -12,12 +13,13 @@ import { useEffect } from 'react';
 import { useLibrary } from './hooks/useLibrary';
 import { useBoardStore } from './stores/useBoardStore';
 import { useSettingsStore } from './stores/useSettingsStore';
+import { useMetadataStore } from './stores/useMetadataStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
 
 type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 type ViewMode = 'grid' | 'list' | 'board';
-export type ToolType = 'select' | 'pan';
+export type ToolType = 'select' | 'pan' | 'text' | 'shape' | 'draw' | 'link';
 
 const App: React.FC = () => {
   // Navigation state
@@ -30,7 +32,7 @@ const App: React.FC = () => {
   const [showDetailPanel, setShowDetailPanel] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
 
-  const { isLoaded, loadSettings, vaultPath: savedVaultPath, defaultView, compactMode, updateSettings } = useSettingsStore();
+  const { isLoaded, loadSettings, vaultPath: savedVaultPath, defaultView, compactMode, updateSettings, addVault } = useSettingsStore();
 
   React.useEffect(() => {
     loadSettings();
@@ -51,8 +53,10 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (isLoaded && vaultPath && vaultPath !== savedVaultPath) {
       updateSettings({ vaultPath });
+      const vaultName = vaultPath.split(/[\\/]/).pop() || 'My Vault';
+      addVault(vaultName, vaultPath);
     }
-  }, [vaultPath, savedVaultPath, isLoaded, updateSettings]);
+  }, [vaultPath, savedVaultPath, isLoaded, updateSettings, addVault]);
   
   // Data state
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
@@ -97,6 +101,9 @@ const App: React.FC = () => {
     };
   }, [loadAssets]);
 
+  // Metadata Store
+  const { collections } = useMetadataStore();
+
   // Canvas Tools
   const [activeTool, setActiveTool] = useState<ToolType>('select');
 
@@ -136,9 +143,23 @@ const App: React.FC = () => {
     setShowDetailPanel(prev => !prev);
   }, []);
 
-  // Filter assets by search and active view
-  let filteredAssets = assets;
-  
+  // Board Media Drawer State & Filtering
+  const [isMediaDrawerCollapsed, setIsMediaDrawerCollapsed] = useState(false);
+  const [boardSearchQuery, setBoardSearchQuery] = useState('');
+  const [boardCategoryFilter, setBoardCategoryFilter] = useState('all');
+  const [boardSortBy, setBoardSortBy] = useState('date');
+
+  // Filter assets by view (Archive/Trash vs Normal)
+  let filteredAssets: Asset[] = assets;
+
+  if (activeView === 'trash') {
+    filteredAssets = filteredAssets.filter((a: Asset) => a.trashed);
+  } else if (activeView === 'archive') {
+    filteredAssets = filteredAssets.filter((a: Asset) => a.archived && !a.trashed);
+  } else {
+    filteredAssets = filteredAssets.filter((a: Asset) => !a.trashed && !a.archived);
+  }
+
   if (activeCollection) {
     filteredAssets = filteredAssets.filter(a => a.collections && a.collections.includes(activeCollection));
   }
@@ -152,8 +173,6 @@ const App: React.FC = () => {
   } else if (activeView === 'untagged') {
     filteredAssets = filteredAssets.filter(a => !a.tags || a.tags.length === 0);
   } else if (activeView === 'recent') {
-    // For now just sort by newest (we'll assume they are generally sorted by date_added anyway)
-    // or we can slice the first 50.
     filteredAssets = [...filteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
   }
 
@@ -165,6 +184,26 @@ const App: React.FC = () => {
     );
   }
 
+  // Media Drawer filtering for Boards view
+  let boardFilteredAssets = assets.filter(a => !a.trashed && !a.archived);
+  if (boardSearchQuery) {
+    boardFilteredAssets = boardFilteredAssets.filter(a =>
+      a.title.toLowerCase().includes(boardSearchQuery.toLowerCase()) ||
+      a.filename.toLowerCase().includes(boardSearchQuery.toLowerCase()) ||
+      (a.tags && a.tags.some(t => t.toLowerCase().includes(boardSearchQuery.toLowerCase())))
+    );
+  }
+  if (boardCategoryFilter !== 'all') {
+    boardFilteredAssets = boardFilteredAssets.filter(a => a.collections && a.collections.includes(boardCategoryFilter));
+  }
+  if (boardSortBy === 'title') {
+    boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => a.title.localeCompare(b.title));
+  } else if (boardSortBy === 'size') {
+    boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => (parseFloat(b.size) || 0) - (parseFloat(a.size) || 0));
+  } else {
+    boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
+  }
+
   // Get title based on active view
   const getViewTitle = () => {
     switch (activeView) {
@@ -172,6 +211,8 @@ const App: React.FC = () => {
       case 'favorites': return 'Favorites';
       case 'recent': return 'Recent Imports';
       case 'untagged': return 'Untagged Assets';
+      case 'archive': return 'Archive';
+      case 'trash': return 'Trash Bin';
       case 'boards': return 'Mood Boards';
       case 'graph': return 'Inspiration Graph';
       case 'search': return 'Search';
@@ -236,7 +277,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ) : ['library', 'search', 'favorites', 'recent', 'untagged'].includes(activeView) ? (
+            ) : ['library', 'search', 'favorites', 'recent', 'untagged', 'archive', 'trash'].includes(activeView) ? (
               <Gallery
                 assets={filteredAssets}
                 selectedAsset={selectedAsset}
@@ -261,38 +302,91 @@ const App: React.FC = () => {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
-                  {/* Left Side: Asset Sidebar */}
+                  {/* Left Side: Rich Media Drawer for Board */}
                   <div style={{ 
-                    width: 250, 
+                    width: isMediaDrawerCollapsed ? 44 : 280, 
+                    transition: 'width 0.2s ease',
                     borderRight: '1px solid var(--border-subtle)', 
                     display: 'flex', 
                     flexDirection: 'column',
-                    background: 'var(--bg-surface)' 
+                    background: 'var(--bg-surface)',
+                    position: 'relative',
+                    zIndex: 20
                   }}>
-                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
-                      <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600 }}>Drag to Board</h3>
+                    <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      {!isMediaDrawerCollapsed && <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>Media Drawer</h3>}
+                      <button 
+                        className="toolbar__btn" 
+                        onClick={() => setIsMediaDrawerCollapsed(!isMediaDrawerCollapsed)}
+                        title={isMediaDrawerCollapsed ? "Expand Media Sidebar" : "Collapse Media Sidebar"}
+                        style={{ padding: '4px 6px', margin: isMediaDrawerCollapsed ? '0 auto' : '0' }}
+                      >
+                        {isMediaDrawerCollapsed ? '▶' : '◀'}
+                      </button>
                     </div>
-                    <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignContent: 'start' }}>
-                      {filteredAssets.map(asset => (
-                        <div 
-                          key={asset.id} 
-                          draggable 
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('application/json', JSON.stringify({ 
-                              id: asset.id, 
-                              url: asset.url, 
-                              title: asset.title,
-                              width: asset.width,
-                              height: asset.height
-                            }));
-                          }}
-                          style={{ aspectRatio: '1', background: 'var(--bg-base)', borderRadius: 4, overflow: 'hidden', cursor: 'grab' }}
-                          title={asset.title}
-                        >
-                          <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />
+
+                    {!isMediaDrawerCollapsed && (
+                      <>
+                        {/* Filtering Controls */}
+                        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6, borderBottom: '1px solid var(--border-subtle)' }}>
+                          <input 
+                            placeholder="Search media..."
+                            value={boardSearchQuery}
+                            onChange={e => setBoardSearchQuery(e.target.value)}
+                            style={{ background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '4px 8px', fontSize: '0.75rem' }}
+                          />
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <select 
+                              value={boardCategoryFilter}
+                              onChange={e => setBoardCategoryFilter(e.target.value)}
+                              style={{ flex: 1, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '3px', fontSize: '0.7rem' }}
+                            >
+                              <option value="all">All Categories</option>
+                              {collections.map((c: any) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                            <select 
+                              value={boardSortBy}
+                              onChange={e => setBoardSortBy(e.target.value)}
+                              style={{ flex: 1, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '3px', fontSize: '0.7rem' }}
+                            >
+                              <option value="date">Sort: Date</option>
+                              <option value="title">Sort: Title</option>
+                              <option value="size">Sort: Size</option>
+                            </select>
+                          </div>
                         </div>
-                      ))}
-                    </div>
+
+                        {/* Asset Grid */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignContent: 'start' }}>
+                          {boardFilteredAssets.map(asset => (
+                            <div 
+                              key={asset.id} 
+                              draggable 
+                              onDragStart={(e) => {
+                                const dataObj = { 
+                                  id: asset.id, 
+                                  url: asset.url, 
+                                  title: asset.title,
+                                  width: asset.width,
+                                  height: asset.height
+                                };
+                                e.dataTransfer.setData('application/json', JSON.stringify(dataObj));
+                                e.dataTransfer.setData('text/plain', asset.url);
+                              }}
+                              style={{ aspectRatio: '1', background: 'var(--bg-base)', borderRadius: 4, overflow: 'hidden', cursor: 'grab', position: 'relative' }}
+                              title={`${asset.title} - Drag onto board`}
+                            >
+                              <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />
+                              <div style={{ position: 'absolute', bottom: 0, inset: 'auto 0 0 0', background: 'rgba(0,0,0,0.6)', padding: '2px 4px', fontSize: '9px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'white' }}>
+                                {asset.title}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                   
                   {/* Right Side: Canvas */}
@@ -340,13 +434,14 @@ const App: React.FC = () => {
                       if (activeBoardId) updateBoardNodes(activeBoardId, nodes);
                     }}
                     activeTool={activeTool}
+                    onToolChange={setActiveTool}
                   />
 
-                  {/* Canvas floating toolbar */}
+                  {/* Canvas floating toolbar with Direct Item Creation */}
                 <div className="canvas-toolbar">
                   <button 
                     className={`toolbar__btn ${activeTool === 'select' ? 'toolbar__btn--active' : ''}`} 
-                    title="Select"
+                    title="Select & Move (V)"
                     onClick={() => setActiveTool('select')}
                   >
                     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
@@ -355,7 +450,7 @@ const App: React.FC = () => {
                   </button>
                   <button 
                     className={`toolbar__btn ${activeTool === 'pan' ? 'toolbar__btn--active' : ''}`} 
-                    title="Hand (Pan)"
+                    title="Hand / Pan Viewport (H)"
                     onClick={() => setActiveTool('pan')}
                   >
                     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
@@ -363,19 +458,68 @@ const App: React.FC = () => {
                     </svg>
                   </button>
                   <div className="toolbar__separator" />
-                  <button className="toolbar__btn" title="Add Text">
+                  <button 
+                    className={`toolbar__btn ${activeTool === 'text' ? 'toolbar__btn--active' : ''}`} 
+                    title="Add Text Note (T)"
+                    onClick={() => {
+                      setActiveTool('text');
+                      const textStr = prompt("Enter text note:", "Note idea...");
+                      if (textStr && textStr.trim() && activeBoardId) {
+                        const newNode: any = {
+                          id: uuidv4(),
+                          type: 'text',
+                          position: { x: 300 + Math.random() * 60, y: 300 + Math.random() * 60 },
+                          dimensions: { width: 220, height: 110 },
+                          data: { text: textStr.trim(), fontSize: 14, color: '#3b82f6' }
+                        };
+                        updateBoardNodes(activeBoardId, [...(activeBoard?.nodes || []), newNode]);
+                        setActiveTool('select');
+                      }
+                    }}
+                  >
                     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                       <polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />
                     </svg>
                   </button>
-                  <button className="toolbar__btn" title="Add Shape">
+                  <button 
+                    className={`toolbar__btn ${activeTool === 'shape' ? 'toolbar__btn--active' : ''}`} 
+                    title="Add Shape Frame (S)"
+                    onClick={() => {
+                      setActiveTool('shape');
+                      if (activeBoardId) {
+                        const newNode: any = {
+                          id: uuidv4(),
+                          type: 'shape',
+                          position: { x: 350 + Math.random() * 60, y: 350 + Math.random() * 60 },
+                          dimensions: { width: 240, height: 160 },
+                          data: { shapeType: 'rectangle', color: '#7c6bf0' }
+                        };
+                        updateBoardNodes(activeBoardId, [...(activeBoard?.nodes || []), newNode]);
+                        setActiveTool('select');
+                      }
+                    }}
+                  >
                     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                       <rect x="3" y="3" width="18" height="18" rx="2" />
                     </svg>
                   </button>
-                  <button className="toolbar__btn" title="Draw">
+                  <button 
+                    className={`toolbar__btn ${activeTool === 'draw' ? 'toolbar__btn--active' : ''}`} 
+                    title="Freehand Draw (D)"
+                    onClick={() => setActiveTool('draw')}
+                  >
                     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                       <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><path d="M2 2l7.586 7.586" /><circle cx="11" cy="11" r="2" />
+                    </svg>
+                  </button>
+                  <button 
+                    className={`toolbar__btn ${activeTool === 'link' ? 'toolbar__btn--active' : ''}`} 
+                    title="Connect Arrow Link (L)"
+                    onClick={() => setActiveTool('link')}
+                  >
+                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                      <polyline points="12 5 19 12 12 19" />
                     </svg>
                   </button>
                 </div>
@@ -417,6 +561,7 @@ const App: React.FC = () => {
               asset={selectedAsset}
               visible={showDetailPanel}
               onClose={handleToggleDetailPanel}
+              onAssetsUpdated={loadAssets}
             />
           </div>
         </div>

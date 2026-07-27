@@ -68,27 +68,29 @@ export function useLibrary() {
   };
 
 
-  const importFiles = async () => {
+  const importFiles = async (explicitPaths?: string[]) => {
     try {
-      const selected = await open({
-        multiple: true,
-        filters: [{
-          name: 'Media & Documents',
-          extensions: ['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'pdf', 'txt', 'md']
-        }]
-      });
+      let files: string[] = [];
+      if (explicitPaths && explicitPaths.length > 0) {
+        files = explicitPaths;
+      } else {
+        const selected = await open({
+          multiple: true,
+          filters: [{
+            name: 'Media & Documents',
+            extensions: ['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'pdf', 'txt', 'md']
+          }]
+        });
 
-      if (!selected) return;
-      
-      const files = Array.isArray(selected) ? selected : [selected];
+        if (!selected) return;
+        files = Array.isArray(selected) ? selected : [selected];
+      }
       
       setIsLoading(true);
       for (const file of files) {
         await invoke('import_file', { filePath: file });
       }
       
-      // The backend file watcher will automatically trigger loadAssets via the event,
-      // but we can call it here manually just in case to be immediately responsive.
       await loadAssets(); 
     } catch (err) {
       console.error('Failed to import files:', err);

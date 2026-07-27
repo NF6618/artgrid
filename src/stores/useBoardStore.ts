@@ -24,7 +24,13 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set({ isLoading: true });
     try {
       const boards = await invoke<Board[]>('get_boards');
-      set({ boards, isLoading: false });
+      set(state => ({ 
+        boards, 
+        activeBoardId: state.activeBoardId && boards.some(b => b.id === state.activeBoardId)
+          ? state.activeBoardId
+          : (boards.length > 0 ? boards[0].id : null),
+        isLoading: false 
+      }));
     } catch (err) {
       console.error('Failed to load boards:', err);
       set({ isLoading: false });

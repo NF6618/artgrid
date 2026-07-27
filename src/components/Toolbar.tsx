@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   IconGrid, IconList, IconBoard, IconSearch, IconFilter,
   IconSort, IconColumns
@@ -16,6 +16,10 @@ interface ToolbarProps {
   title?: string;
   itemCount?: number;
   onRefresh?: () => void;
+  filterType?: string;
+  onFilterTypeChange?: (type: string) => void;
+  sortBy?: string;
+  onSortByChange?: (sort: string) => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -28,7 +32,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   title = 'Library',
   itemCount,
   onRefresh,
+  filterType = 'all',
+  onFilterTypeChange,
+  sortBy = 'date',
+  onSortByChange,
 }) => {
+  const [localSearch, setLocalSearch] = useState(searchQuery);
+  const searchDebounceRef = useRef<any>(null);
+
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
+
+  useEffect(() => {
+    setLocalSearch(searchQuery);
+  }, [searchQuery]);
+
+  const handleSearchInput = (value: string) => {
+    setLocalSearch(value);
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      onSearchChange(value);
+    }, 200);
+  };
+
   return (
     <div className="toolbar">
       {/* Left: View info */}
@@ -45,29 +73,118 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       <div className="toolbar__spacer" />
 
-      {/* Center: Search */}
+      {/* Center: Search with 200ms Debouncing */}
       <div className="search-bar">
         <IconSearch size={14} className="search-bar__icon" />
         <input
           type="text"
           className="search-bar__input"
           placeholder="Search assets..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          value={localSearch}
+          onChange={(e) => handleSearchInput(e.target.value)}
         />
         <span className="search-bar__shortcut">⌘K</span>
       </div>
 
       <div className="toolbar__spacer" />
 
-      {/* Right: View controls */}
-      <div className="toolbar__group">
-        <button className="toolbar__btn" title="Filter">
+      {/* Right: View controls (Filter & Sort Dropdowns) */}
+      <div className="toolbar__group" style={{ position: 'relative' }}>
+        {/* Filter Button */}
+        <button 
+          className={`toolbar__btn ${showFilterMenu || filterType !== 'all' ? 'toolbar__btn--active' : ''}`} 
+          title="Filter by Format"
+          onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
+        >
           <IconFilter size={15} />
         </button>
-        <button className="toolbar__btn" title="Sort">
+
+        {showFilterMenu && (
+          <div style={{
+            position: 'absolute',
+            top: '110%',
+            right: 40,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 6,
+            boxShadow: '0 8px 20px rgba(0,0,0,0.4)',
+            padding: '6px 0',
+            zIndex: 100,
+            minWidth: 140
+          }}>
+            {[
+              { id: 'all', label: 'All Formats' },
+              { id: 'image', label: 'Images' },
+              { id: 'pdf', label: 'PDF Documents' },
+              { id: 'text', label: 'Text / Markdown' },
+            ].map(f => (
+              <div 
+                key={f.id}
+                style={{
+                  padding: '6px 16px',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  background: filterType === f.id ? 'var(--bg-tertiary)' : 'transparent',
+                  color: filterType === f.id ? 'var(--accent-primary)' : 'var(--text-primary)'
+                }}
+                onClick={() => {
+                  if (onFilterTypeChange) onFilterTypeChange(f.id);
+                  setShowFilterMenu(false);
+                }}
+              >
+                {f.label}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Sort Button */}
+        <button 
+          className={`toolbar__btn ${showSortMenu ? 'toolbar__btn--active' : ''}`} 
+          title="Sort Assets"
+          onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false); }}
+        >
           <IconSort size={15} />
         </button>
+
+        {showSortMenu && (
+          <div style={{
+            position: 'absolute',
+            top: '110%',
+            right: 0,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 6,
+            boxShadow: '0 8px 20px rgba(0,0,0,0.4)',
+            padding: '6px 0',
+            zIndex: 100,
+            minWidth: 140
+          }}>
+            {[
+              { id: 'date', label: 'Date Added' },
+              { id: 'name', label: 'Asset Name' },
+              { id: 'size', label: 'File Size' },
+              { id: 'dimensions', label: 'Dimensions' },
+            ].map(s => (
+              <div 
+                key={s.id}
+                style={{
+                  padding: '6px 16px',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  background: sortBy === s.id ? 'var(--bg-tertiary)' : 'transparent',
+                  color: sortBy === s.id ? 'var(--accent-primary)' : 'var(--text-primary)'
+                }}
+                onClick={() => {
+                  if (onSortByChange) onSortByChange(s.id);
+                  setShowSortMenu(false);
+                }}
+              >
+                {s.label}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="toolbar__separator" />

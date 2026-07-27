@@ -25,6 +25,13 @@ pub struct NodeData {
     pub font_size: Option<f64>,
     pub color: Option<String>,
     pub shape_type: Option<String>,
+    pub stroke_points: Option<Vec<Position>>,
+    pub stroke_color: Option<String>,
+    pub stroke_width: Option<f64>,
+    pub fill_color: Option<String>,
+    pub fill_opacity: Option<f64>,
+    pub corner_radius: Option<f64>,
+    pub connected_node_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

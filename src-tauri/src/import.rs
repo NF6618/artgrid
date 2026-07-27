@@ -25,6 +25,9 @@ pub struct AssetData {
     pub favorite: bool,
     pub date_added: String,
     pub url: String, // Usually local custom protocol url like `asset://...`
+    pub notes: Option<String>,
+    pub archived: bool,
+    pub trashed: bool,
     pub tags: Vec<String>,
     pub collections: Vec<String>,
 }
@@ -65,17 +68,17 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
     
     let mut stmt = conn.prepare("
         SELECT 
-            a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url,
+            a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url, a.notes, a.archived, a.trashed,
             (SELECT GROUP_CONCAT(t.name) FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id) as tags,
             (SELECT GROUP_CONCAT(ac.collection_id) FROM asset_collections ac WHERE ac.asset_id = a.id) as collections
         FROM assets a
     ").map_err(|e| e.to_string())?;
     
     let asset_iter = stmt.query_map([], |row| {
-        let tags_str: Option<String> = row.get(11)?;
+        let tags_str: Option<String> = row.get(14)?;
         let tags = tags_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
         
-        let cols_str: Option<String> = row.get(12)?;
+        let cols_str: Option<String> = row.get(15)?;
         let collections = cols_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
 
         Ok(AssetData {
@@ -90,6 +93,9 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
             favorite: row.get(8)?,
             date_added: row.get(9)?,
             url: row.get(10)?,
+            notes: row.get(11)?,
+            archived: row.get(12)?,
+            trashed: row.get(13)?,
             tags,
             collections,
         })
@@ -165,6 +171,9 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
         favorite: false,
         date_added: now,
         url: url.clone(),
+        notes: None,
+        archived: false,
+        trashed: false,
         tags: vec![],
         collections: vec![],
     };
@@ -262,13 +271,16 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
         favorite: false,
         date_added: now,
         url: local_url.clone(),
+        notes: None,
+        archived: false,
+        trashed: false,
         tags: vec![],
         collections: vec![],
     };
     
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         (
             &asset.id,
             &asset.title,
@@ -281,9 +293,154 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
             &asset.favorite,
             &asset.date_added,
             &asset.url,
+            &asset.notes,
+            &asset.archived,
+            &asset.trashed,
         ),
     ).map_err(|e| e.to_string())?;
     
     Ok(asset)
+}
+
+#[tauri::command]
+pub fn update_asset_notes(id: String, notes: String, state: State<'_, AppState>) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+
+    conn.execute(
+        "UPDATE assets SET notes = ?1 WHERE id = ?2",
+        (&notes, &id),
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn archive_asset(id: String, archived: bool, state: State<'_, AppState>) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+
+    conn.execute(
+        "UPDATE assets SET archived = ?1 WHERE id = ?2",
+        (&archived, &id),
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn trash_asset(id: String, trashed: bool, state: State<'_, AppState>) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+
+    conn.execute(
+        "UPDATE assets SET trashed = ?1 WHERE id = ?2",
+        (&trashed, &id),
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn rename_asset(id: String, new_title: String, new_filename: String, state: State<'_, AppState>) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+
+    // Get current filepath
+    let mut stmt = conn.prepare("SELECT filepath FROM assets WHERE id = ?1").map_err(|e| e.to_string())?;
+    let current_filepath: String = stmt.query_row([&id], |row| row.get(0)).map_err(|e| e.to_string())?;
+
+    let old_abs_path = vault_path.join(&current_filepath);
+
+    let ext = old_abs_path.extension().unwrap_or_default().to_string_lossy();
+    let formatted_new_filename = if new_filename.contains('.') {
+        new_filename
+    } else {
+        format!("{}.{}", new_filename, ext)
+    };
+
+    let new_rel_path = PathBuf::from("media").join(&formatted_new_filename);
+    let new_abs_path = vault_path.join(&new_rel_path);
+
+    if old_abs_path.exists() && old_abs_path != new_abs_path {
+        fs::rename(&old_abs_path, &new_abs_path).map_err(|e| format!("Failed to rename file on disk: {}", e))?;
+    }
+
+    let new_url = new_abs_path.to_string_lossy().into_owned();
+
+    conn.execute(
+        "UPDATE assets SET title = ?1, filename = ?2, filepath = ?3, url = ?4 WHERE id = ?5",
+        (&new_title, &formatted_new_filename, &new_rel_path.to_string_lossy().into_owned(), &new_url, &id),
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn export_db_backup(destination_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().ok_or("No vault opened")?;
+
+    let db_path = vault_path.join("artgrid.db");
+    if !db_path.exists() {
+        return Err("Database file does not exist".to_string());
+    }
+
+    fs::copy(&db_path, PathBuf::from(destination_path)).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn import_db_backup(source_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().ok_or("No vault opened")?;
+
+    let src = PathBuf::from(source_path);
+    if !src.exists() {
+        return Err("Backup file does not exist".to_string());
+    }
+
+    let dest = vault_path.join("artgrid.db");
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clear_temp_cache(state: State<'_, AppState>) -> Result<String, String> {
+    let mut cleaned_count = 0;
+    
+    // 1. Remove temporary webview cache files
+    let temp_dir = std::env::temp_dir().join("artgrid_webview2_dev");
+    if temp_dir.exists() {
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    // 2. Scan database for imported assets no longer physically present in the vault folder
+    let db_lock = state.db.lock().unwrap();
+    let vault_lock = state.vault_path.lock().unwrap();
+
+    if let (Some(conn), Some(vault_path)) = (db_lock.as_ref(), vault_lock.as_ref()) {
+        let mut stmt = conn.prepare("SELECT id, filepath FROM assets").map_err(|e| e.to_string())?;
+        let asset_rows: Vec<(String, String)> = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        }).map_err(|e| e.to_string())?
+          .filter_map(Result::ok)
+          .collect();
+
+        for (id, rel_filepath) in asset_rows {
+            let abs_path = vault_path.join(&rel_filepath);
+            if !abs_path.exists() {
+                let _ = conn.execute("DELETE FROM asset_tags WHERE asset_id = ?1", [&id]);
+                let _ = conn.execute("DELETE FROM asset_collections WHERE asset_id = ?1", [&id]);
+                let _ = conn.execute("DELETE FROM assets WHERE id = ?1", [&id]);
+                cleaned_count += 1;
+            }
+        }
+    }
+
+    Ok(format!("Cache cleared successfully. Cleaned {} missing/orphaned database entries.", cleaned_count))
 }
 

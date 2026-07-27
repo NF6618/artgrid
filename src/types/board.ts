@@ -8,7 +8,7 @@ export type Dimensions = {
   height: number;
 };
 
-export type NodeType = 'image' | 'text' | 'shape';
+export type NodeType = 'image' | 'text' | 'shape' | 'draw' | 'link';
 
 export interface BoardNode {
   id: string;
@@ -18,7 +18,7 @@ export interface BoardNode {
   
   // Node-specific data
   data: {
-    // For images, this links back to an asset in the library
+    // For images
     assetId?: string;
     url?: string;
     
@@ -28,7 +28,18 @@ export interface BoardNode {
     color?: string;
     
     // For shapes
-    shapeType?: 'rectangle' | 'circle' | 'line';
+    shapeType?: 'rectangle' | 'circle';
+    strokeColor?: string;
+    strokeWidth?: number;
+    fillColor?: string;
+    fillOpacity?: number;
+    cornerRadius?: number;
+    
+    // For freehand drawing
+    strokePoints?: Position[];
+    
+    // For arrow/edge connections
+    connectedNodeId?: string;
   };
 }
 

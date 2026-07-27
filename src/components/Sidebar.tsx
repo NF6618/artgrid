@@ -24,12 +24,10 @@ interface SidebarProps {
     boards: number;
     favorites: number;
     untagged: number;
+    archive?: number;
+    trash?: number;
   };
 }
-
-
-
-// Removed static NAV_ITEMS and QUICK_ACCESS to move them inside component
 
 // Collection tree item component
 const CollectionTreeItem: React.FC<{
@@ -88,11 +86,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSettings,
   stats
 }) => {
-  const { collections, tags, loadMetadata } = useMetadataStore();
+  const { collections, tags, loadMetadata, createCollection } = useMetadataStore();
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newColName, setNewColName] = useState('');
+  const [newColColor, setNewColColor] = useState('#3b82f6');
+  const [newColParent, setNewColParent] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     loadMetadata();
   }, [loadMetadata]);
+
   const NAV_ITEMS = [
     { id: 'library' as ViewType, label: 'Library', icon: IconImage, count: stats.library },
     { id: 'boards' as ViewType, label: 'Boards', icon: IconBoard, count: stats.boards },
@@ -104,9 +108,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'favorites', label: 'Favorites', icon: IconStar, count: stats.favorites },
     { id: 'recent', label: 'Recent', icon: IconClock, count: stats.library },
     { id: 'untagged', label: 'Untagged', icon: IconTag, count: stats.untagged },
-    { id: 'archive', label: 'Archive', icon: IconArchive },
-    { id: 'trash', label: 'Trash', icon: IconTrash, count: 0 },
+    { id: 'archive', label: 'Archive', icon: IconArchive, count: stats.archive || 0 },
+    { id: 'trash', label: 'Trash Bin', icon: IconTrash, count: stats.trash || 0 },
   ];
+
+  const handleCreateCollectionSubmit = async () => {
+    if (newColName.trim()) {
+      await createCollection(newColName.trim(), newColColor, newColParent);
+      setNewColName('');
+      setShowCreateModal(false);
+    }
+  };
 
   return (
     <div className="sidebar">
@@ -140,23 +152,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         ))}
 
-        {/* Collections */}
+        {/* Collections Header + Add Button */}
         <div className="sidebar__section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: 'var(--space-3)' }}>
           <span>Collections</span>
           <button
             className="toolbar__btn"
             style={{ width: 20, height: 20, minWidth: 20, padding: 0 }}
             title="New collection"
-            onClick={() => {
-              const name = window.prompt("New Collection Name:");
-              if (name && name.trim()) {
-                useMetadataStore.getState().createCollection(name.trim(), '#3b82f6');
-              }
-            }}
+            onClick={() => setShowCreateModal(true)}
           >
             <IconPlus size={12} />
           </button>
         </div>
+
+        {/* Rich Creation Modal Popover */}
+        {showCreateModal && (
+          <div style={{ padding: '8px 12px', background: 'var(--bg-surface)', borderRadius: 6, margin: '4px 8px', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input 
+              autoFocus
+              placeholder="Collection name..."
+              value={newColName}
+              onChange={e => setNewColName(e.target.value)}
+              style={{ background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '4px 8px', fontSize: '0.8rem' }}
+            />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {['#3b82f6', '#7c6bf0', '#f06b8e', '#10b981', '#f59e0b'].map(c => (
+                <div 
+                  key={c} 
+                  onClick={() => setNewColColor(c)}
+                  style={{ width: 16, height: 16, borderRadius: '50%', background: c, cursor: 'pointer', border: newColColor === c ? '2px solid white' : 'none' }} 
+                />
+              ))}
+            </div>
+            <select 
+              value={newColParent || ''} 
+              onChange={e => setNewColParent(e.target.value || undefined)}
+              style={{ background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '4px', fontSize: '0.75rem' }}
+            >
+              <option value="">No Parent (Root)</option>
+              {collections.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+              <button className="btn btn--secondary" style={{ padding: '2px 8px', fontSize: '0.75rem' }} onClick={() => setShowCreateModal(false)}>Cancel</button>
+              <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '0.75rem' }} onClick={handleCreateCollectionSubmit}>Create</button>
+            </div>
+          </div>
+        )}
+
         <div className="collection-tree">
           {collections.map(collection => (
             <CollectionTreeItem
