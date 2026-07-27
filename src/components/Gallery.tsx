@@ -116,7 +116,8 @@ export const Gallery: React.FC<GalleryProps> = ({
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    asset: Asset;
+    asset?: Asset;
+    isBackground?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -238,6 +239,16 @@ export const Gallery: React.FC<GalleryProps> = ({
     setSelectionBox(null);
   };
 
+  const handleBackgroundContextMenu = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.gallery__card') || target.closest('.gallery__list-row')) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, isBackground: true });
+  };
+
   // Bulk Operations
   const handleBulkFavorite = async () => {
     const { invoke } = await import('@tauri-apps/api/core');
@@ -321,6 +332,7 @@ export const Gallery: React.FC<GalleryProps> = ({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onContextMenu={handleBackgroundContextMenu}
       style={{ position: 'relative' }}
     >
       {/* Selection Box Overlay */}
@@ -634,74 +646,109 @@ export const Gallery: React.FC<GalleryProps> = ({
           }}
           onClick={e => e.stopPropagation()}
         >
-          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 8px', textTransform: 'uppercase' }}>
-            Asset Actions
-          </div>
+          {contextMenu.isBackground ? (
+            <>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 8px', textTransform: 'uppercase' }}>
+                Library Actions
+              </div>
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  onImport?.();
+                  setContextMenu(null);
+                }}
+              >
+                <IconUpload size={14} /> Import Media Files...
+              </button>
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={async () => {
+                  const name = prompt('New folder name:');
+                  if (name && name.trim()) {
+                    const { invoke } = await import('@tauri-apps/api/core');
+                    await invoke('create_folder', { name: name.trim(), parentId: currentFolderId });
+                    onAssetsUpdated?.();
+                  }
+                  setContextMenu(null);
+                }}
+              >
+                📁 Create Folder...
+              </button>
+            </>
+          ) : contextMenu.asset ? (
+            <>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 8px', textTransform: 'uppercase' }}>
+                Asset Actions
+              </div>
 
-          <button
-            className="btn btn--secondary"
-            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={() => {
-              onPreviewAsset?.(contextMenu.asset);
-              setContextMenu(null);
-            }}
-          >
-            <IconEye size={14} /> Open Media Viewer
-          </button>
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  onPreviewAsset?.(contextMenu.asset!);
+                  setContextMenu(null);
+                }}
+              >
+                <IconEye size={14} /> Open Media Viewer
+              </button>
 
-          <button
-            className="btn btn--secondary"
-            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={() => {
-              onToggleFavorite(contextMenu.asset.id);
-              setContextMenu(null);
-            }}
-          >
-            <IconStar size={14} /> {contextMenu.asset.favorite ? 'Unfavorite' : 'Mark as Favorite'}
-          </button>
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  onToggleFavorite(contextMenu.asset!.id);
+                  setContextMenu(null);
+                }}
+              >
+                <IconStar size={14} /> {contextMenu.asset.favorite ? 'Unfavorite' : 'Mark as Favorite'}
+              </button>
 
-          <button
-            className="btn btn--secondary"
-            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={async () => {
-              const name = prompt('New title for asset:', contextMenu.asset.title);
-              if (name && name.trim()) {
-                const { invoke } = await import('@tauri-apps/api/core');
-                const ext = contextMenu.asset.filename.includes('.') ? '.' + contextMenu.asset.filename.split('.').pop() : '';
-                await invoke('rename_asset', { id: contextMenu.asset.id, newTitle: name.trim(), newFilename: name.trim() + ext });
-                onAssetsUpdated?.();
-              }
-              setContextMenu(null);
-            }}
-          >
-            ✏️ Rename Asset...
-          </button>
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={async () => {
+                  const name = prompt('New title for asset:', contextMenu.asset!.title);
+                  if (name && name.trim()) {
+                    const { invoke } = await import('@tauri-apps/api/core');
+                    const ext = contextMenu.asset!.filename.includes('.') ? '.' + contextMenu.asset!.filename.split('.').pop() : '';
+                    await invoke('rename_asset', { id: contextMenu.asset!.id, newTitle: name.trim(), newFilename: name.trim() + ext });
+                    onAssetsUpdated?.();
+                  }
+                  setContextMenu(null);
+                }}
+              >
+                ✏️ Rename Asset...
+              </button>
 
-          <button
-            className="btn btn--secondary"
-            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={() => {
-              onImport?.();
-              setContextMenu(null);
-            }}
-          >
-            <IconUpload size={14} /> Import Media Files...
-          </button>
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  onImport?.();
+                  setContextMenu(null);
+                }}
+              >
+                <IconUpload size={14} /> Import Media Files...
+              </button>
 
-          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
 
-          <button
-            className="btn btn--secondary"
-            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', color: '#f06b8e', borderColor: 'rgba(240, 107, 142, 0.3)', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={async () => {
-              const { invoke } = await import('@tauri-apps/api/core');
-              await invoke('trash_asset', { id: contextMenu.asset.id, trashed: true });
-              onAssetsUpdated?.();
-              setContextMenu(null);
-            }}
-          >
-            <IconTrash size={14} /> Move to Trash
-          </button>
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', color: '#f06b8e', borderColor: 'rgba(240, 107, 142, 0.3)', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={async () => {
+                  const { invoke } = await import('@tauri-apps/api/core');
+                  await invoke('trash_asset', { id: contextMenu.asset!.id, trashed: true });
+                  onAssetsUpdated?.();
+                  setContextMenu(null);
+                }}
+              >
+                <IconTrash size={14} /> Move to Trash
+              </button>
+            </>
+          ) : null}
         </div>
       )}
     </div>

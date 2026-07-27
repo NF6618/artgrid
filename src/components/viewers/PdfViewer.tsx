@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import * as pdfjsLib from 'pdfjs-dist';
-import { IconColumns, IconType, IconScissors, IconImage, IconCamera } from '../Icons';
+import { IconColumns, IconType, IconScissors, IconImage, IconCamera, IconSearch } from '../Icons';
 import { ViewerProps } from './ViewerTypes';
 import { AIToolbar } from './AIToolbar';
 
@@ -66,6 +66,59 @@ const PdfPageThumbnailCanvas: React.FC<{ pdfDoc: any; pageNum: number; isSelecte
   );
 };
 
+const ScrollPageCanvas: React.FC<{ pdfDoc: any; pageNum: number; scale: number; onVisible?: (pageNum: number) => void }> = ({
+  pdfDoc,
+  pageNum,
+  scale,
+  onVisible
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setIsVisible(true);
+        if (onVisible) onVisible(pageNum);
+      }
+    }, { rootMargin: '400px' });
+    
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [pageNum, onVisible]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!isVisible || !pdfDoc || !canvasRef.current) return;
+
+    pdfDoc.getPage(pageNum).then((page: any) => {
+      if (!isMounted || !canvasRef.current) return;
+      const viewport = page.getViewport({ scale });
+      const canvas = canvasRef.current;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        page.render({ canvasContext: ctx, viewport });
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, [isVisible, pdfDoc, pageNum, scale]);
+
+  return (
+    <div ref={containerRef} style={{ marginBottom: 32, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <div style={{ fontSize: '11px', color: '#666', textAlign: 'center', marginBottom: 6, fontWeight: 500 }}>
+        Page {pageNum}
+      </div>
+      <div style={{ boxShadow: '0 8px 30px rgba(0,0,0,0.4)', background: '#ffffff', borderRadius: 6, padding: 8, border: '1px solid #c0c0c0' }}>
+        <canvas ref={canvasRef} style={{ display: 'block' }} />
+      </div>
+    </div>
+  );
+};
+
 export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsUpdated, setViewerControls }) => {
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [pdfPageNum, setPdfPageNum] = useState(1);
@@ -73,6 +126,12 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
   const [pdfScale, setPdfScale] = useState(1.0);
   const [pdfExtractedText, setPdfExtractedText] = useState<string | null>(null);
   const [showPdfSidebar, setShowPdfSidebar] = useState(true);
+  
+  const [viewMode, setViewMode] = useState<'flipbook' | 'scroll'>('flipbook');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{page: number, text: string}[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
   // Canvas ref for PDF Book View
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
