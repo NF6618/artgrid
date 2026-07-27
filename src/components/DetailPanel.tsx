@@ -145,17 +145,22 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
     );
   }
 
-  const isPDF = asset.type === 'application/pdf' || asset.filename.toLowerCase().endsWith('.pdf');
+  const safeType = (asset?.type || '').toLowerCase();
+  const safeFilename = (asset?.filename || '').toLowerCase();
 
-  const getReadableFileType = (type: string, filename: string): string => {
-    if (type === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) return 'PDF Document';
-    if (type.includes('png')) return 'PNG Image';
-    if (type.includes('jpeg') || type.includes('jpg')) return 'JPEG Photo';
-    if (type.includes('webp')) return 'WebP Image';
-    if (type.includes('gif')) return 'Animated GIF';
-    if (type.includes('plain') || filename.toLowerCase().endsWith('.txt')) return 'Plain Text Note';
-    if (filename.toLowerCase().endsWith('.md')) return 'Markdown Document';
-    return type.toUpperCase();
+  const isPDF = safeType === 'application/pdf' || safeFilename.endsWith('.pdf');
+
+  const getReadableFileType = (type?: string, filename?: string): string => {
+    const t = (type || '').toLowerCase();
+    const f = (filename || '').toLowerCase();
+    if (t === 'application/pdf' || f.endsWith('.pdf')) return 'PDF Document';
+    if (t.includes('png') || f.endsWith('.png')) return 'PNG Image';
+    if (t.includes('jpeg') || t.includes('jpg') || f.endsWith('.jpg') || f.endsWith('.jpeg')) return 'JPEG Photo';
+    if (t.includes('webp') || f.endsWith('.webp')) return 'WebP Image';
+    if (t.includes('gif') || f.endsWith('.gif')) return 'Animated GIF';
+    if (t.includes('plain') || f.endsWith('.txt')) return 'Plain Text Note';
+    if (f.endsWith('.md')) return 'Markdown Document';
+    return (type || f.split('.').pop() || 'Unknown').toUpperCase();
   };
 
   const colorTheory = analyzePalette(asset.palette);

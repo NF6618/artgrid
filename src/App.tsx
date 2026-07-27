@@ -295,9 +295,9 @@ const App: React.FC = () => {
   }
 
   if (filterType !== 'all') {
-    if (filterType === 'image') filteredAssets = filteredAssets.filter(a => a.type.startsWith('image/'));
-    else if (filterType === 'pdf') filteredAssets = filteredAssets.filter(a => a.type === 'application/pdf');
-    else if (filterType === 'text') filteredAssets = filteredAssets.filter(a => a.type.startsWith('text/'));
+    if (filterType === 'image') filteredAssets = filteredAssets.filter(a => a.type && a.type.startsWith('image/'));
+    else if (filterType === 'pdf') filteredAssets = filteredAssets.filter(a => a.type && (a.type === 'application/pdf' || a.filename.toLowerCase().endsWith('.pdf')));
+    else if (filterType === 'text') filteredAssets = filteredAssets.filter(a => a.type && a.type.startsWith('text/'));
   }
 
   if (colorFilter !== 'all') {
