@@ -20,6 +20,10 @@ interface ToolbarProps {
   onFilterTypeChange?: (type: string) => void;
   sortBy?: string;
   onSortByChange?: (sort: string) => void;
+  showImageNames?: boolean;
+  onToggleImageNames?: () => void;
+  colorFilter?: string;
+  onColorFilterChange?: (color: string) => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -36,6 +40,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onFilterTypeChange,
   sortBy = 'date',
   onSortByChange,
+  showImageNames = true,
+  onToggleImageNames,
+  colorFilter = 'all',
+  onColorFilterChange,
 }) => {
   const [localSearch, setLocalSearch] = useState(searchQuery);
   const searchDebounceRef = useRef<any>(null);
@@ -90,10 +98,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Right: View controls (Filter & Sort Dropdowns) */}
       <div className="toolbar__group" style={{ position: 'relative' }}>
+        {/* Toggle Image Names Button */}
+        <button 
+          className={`toolbar__btn ${showImageNames ? 'toolbar__btn--active' : ''}`} 
+          title={showImageNames ? "Hide Image Names" : "Show Image Names"}
+          onClick={onToggleImageNames}
+        >
+          <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'monospace' }}>Aa</span>
+        </button>
+
         {/* Filter Button */}
         <button 
-          className={`toolbar__btn ${showFilterMenu || filterType !== 'all' ? 'toolbar__btn--active' : ''}`} 
-          title="Filter by Format"
+          className={`toolbar__btn ${showFilterMenu || filterType !== 'all' || (colorFilter && colorFilter !== 'all') ? 'toolbar__btn--active' : ''}`} 
+          title="Filter Assets"
           onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
         >
           <IconFilter size={15} />
@@ -108,10 +125,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             border: '1px solid var(--border-subtle)',
             borderRadius: 6,
             boxShadow: '0 8px 20px rgba(0,0,0,0.4)',
-            padding: '6px 0',
+            padding: '8px 0',
             zIndex: 100,
-            minWidth: 140
+            minWidth: 160
           }}>
+            <div style={{ padding: '4px 12px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Format</div>
             {[
               { id: 'all', label: 'All Formats' },
               { id: 'image', label: 'Images' },
@@ -121,7 +139,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <div 
                 key={f.id}
                 style={{
-                  padding: '6px 16px',
+                  padding: '5px 16px',
                   fontSize: '0.8rem',
                   cursor: 'pointer',
                   background: filterType === f.id ? 'var(--bg-tertiary)' : 'transparent',
@@ -133,6 +151,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               >
                 {f.label}
+              </div>
+            ))}
+
+            <div style={{ padding: '8px 12px 4px 12px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', borderTop: '1px solid var(--border-subtle)', marginTop: 4 }}>Color Temperature</div>
+            {[
+              { id: 'all', label: 'All Colors' },
+              { id: 'warm', label: '🔥 Warm Colors' },
+              { id: 'cool', label: '❄️ Cool Colors' },
+              { id: 'neutral', label: '⚪ Neutral Colors' },
+            ].map(c => (
+              <div 
+                key={c.id}
+                style={{
+                  padding: '5px 16px',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  background: colorFilter === c.id ? 'var(--bg-tertiary)' : 'transparent',
+                  color: colorFilter === c.id ? 'var(--accent-primary)' : 'var(--text-primary)'
+                }}
+                onClick={() => {
+                  if (onColorFilterChange) onColorFilterChange(c.id);
+                  setShowFilterMenu(false);
+                }}
+              >
+                {c.label}
               </div>
             ))}
           </div>

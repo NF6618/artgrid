@@ -19,7 +19,9 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
             url TEXT NOT NULL,
             notes TEXT,
             archived BOOLEAN NOT NULL DEFAULT 0,
-            trashed BOOLEAN NOT NULL DEFAULT 0
+            trashed BOOLEAN NOT NULL DEFAULT 0,
+            palette TEXT,
+            color_profile TEXT
         )",
         [],
     )?;
@@ -28,6 +30,8 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN notes TEXT", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN archived BOOLEAN DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN trashed BOOLEAN DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN palette TEXT", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN color_profile TEXT", []);
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS collections (

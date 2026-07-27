@@ -18,8 +18,10 @@
         "height": 900,
         "minWidth": 900,
         "minHeight": 600,
-        "decorations": true,
-        "visible": true
+        "decorations": false,
+        "shadow": true,
+        "visible": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

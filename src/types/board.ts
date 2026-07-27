@@ -67,10 +67,12 @@ export interface BoardNode {
   };
 }
 
+import { TLRecord } from 'tldraw';
+
 export interface Board {
   id: string;
   title: string;
-  nodes: BoardNode[];
+  nodes: TLRecord[];
   createdAt: number;
   updatedAt: number;
 }

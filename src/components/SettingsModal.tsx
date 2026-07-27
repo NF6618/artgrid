@@ -8,7 +8,7 @@ interface SettingsModalProps {
   onChangeVault: () => void;
 }
 
-type SettingsTab = 'general' | 'vaults' | 'appearance' | 'keybinds' | 'data';
+type SettingsTab = 'general' | 'vaults' | 'appearance' | 'bulk' | 'keybinds' | 'data';
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   visible,
@@ -106,6 +106,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               { id: 'general', label: 'General' },
               { id: 'vaults', label: 'Vaults' },
               { id: 'appearance', label: 'Appearance' },
+              { id: 'bulk', label: 'Bulk Collections & Tags' },
               { id: 'keybinds', label: 'Keybinds' },
               { id: 'data', label: 'Data Management' },
             ].map(tab => (
@@ -117,7 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   cursor: 'pointer',
                   backgroundColor: activeTab === tab.id ? 'var(--bg-surface)' : 'transparent',
                   color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-muted)',
-                  borderLeft: `3px solid ${activeTab === tab.id ? 'var(--accent-color, #3b82f6)' : 'transparent'}`,
+                  borderLeft: `3px solid ${activeTab === tab.id ? 'var(--accent-primary, #3b82f6)' : 'transparent'}`,
                   fontWeight: activeTab === tab.id ? 500 : 400
                 }}
               >
@@ -164,7 +165,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                     <div>
                       <div style={{ fontWeight: 500 }}>Auto-watch Vault Folder</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically import new files dropped into the vault's media folder</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically import new files dropped into the vault's artgrid/media folder</div>
                     </div>
                   </label>
                 </div>
@@ -215,37 +216,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {activeTab === 'appearance' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                {/* Theme Presets */}
                 <div>
                   <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Theme
+                    Color Presets
                   </h3>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <button 
-                      className={`btn ${settings.theme === 'dark' ? 'btn--primary' : 'btn--secondary'}`}
-                      onClick={() => { setSettings({...settings, theme: 'dark'}); setHasChanges(true); }}
-                    >
-                      Dark
-                    </button>
-                    <button 
-                      className={`btn ${settings.theme === 'light' ? 'btn--primary' : 'btn--secondary'}`}
-                      onClick={() => { setSettings({...settings, theme: 'light'}); setHasChanges(true); }}
-                    >
-                      Light
-                    </button>
-                    <button 
-                      className={`btn ${settings.theme === 'system' ? 'btn--primary' : 'btn--secondary'}`}
-                      onClick={() => { setSettings({...settings, theme: 'system'}); setHasChanges(true); }}
-                    >
-                      System
-                    </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    {[
+                      { name: 'Dark Obsidian', bg: '#0a0a0f', sec: '#16161f', accent: '#7c6bf0', text: '#e8e8f0' },
+                      { name: 'Midnight Blue', bg: '#0b132b', sec: '#1c2541', accent: '#4ecdc4', text: '#e0e6ed' },
+                      { name: 'Cyberpunk Neon', bg: '#0d021a', sec: '#1f0a38', accent: '#ff007f', text: '#f3e8ff' },
+                      { name: 'Emerald Dark', bg: '#061a14', sec: '#0e2e24', accent: '#10b981', text: '#e6f7f2' },
+                      { name: 'Light Studio', bg: '#f8fafc', sec: '#ffffff', accent: '#2563eb', text: '#0f172a' },
+                    ].map(preset => (
+                      <div 
+                        key={preset.name}
+                        onClick={() => {
+                          setSettings({
+                            ...settings,
+                            bgBaseColor: preset.bg,
+                            bgSecondaryColor: preset.sec,
+                            accentColor: preset.accent,
+                            textPrimaryColor: preset.text,
+                            theme: preset.name.startsWith('Light') ? 'light' : 'dark'
+                          });
+                          setHasChanges(true);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderRadius: 6,
+                          background: preset.bg,
+                          border: `1px solid ${settings.bgBaseColor === preset.bg ? preset.accent : 'var(--border-subtle)'}`,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: preset.text }}>{preset.name}</div>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <div style={{ width: 12, height: 12, borderRadius: '50%', background: preset.accent }} />
+                          <div style={{ width: 12, height: 12, borderRadius: '50%', background: preset.sec }} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
+                {/* Fine-Tuning Colors */}
                 <div>
                   <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Custom Colors
+                    Custom Color Scheme
                   </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
                       <input 
                         type="color" 
@@ -270,9 +293,168 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <span>Accent Color</span>
                     </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="color" 
+                        value={settings.bgSecondaryColor || '#16161f'} 
+                        onChange={(e) => { 
+                          setSettings({...settings, bgSecondaryColor: e.target.value}); 
+                          setHasChanges(true); 
+                          document.documentElement.style.setProperty('--bg-secondary', e.target.value);
+                        }} 
+                      />
+                      <span>Surface Background</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="color" 
+                        value={settings.textPrimaryColor || '#e8e8f0'} 
+                        onChange={(e) => { 
+                          setSettings({...settings, textPrimaryColor: e.target.value}); 
+                          setHasChanges(true); 
+                          document.documentElement.style.setProperty('--text-primary', e.target.value);
+                        }} 
+                      />
+                      <span>Text Primary</span>
+                    </label>
                   </div>
                 </div>
 
+                {/* Sidebar Color & Font Customization */}
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Sidebar Customization
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="color" 
+                        value={settings.sidebarBgColor || '#0e0e17'} 
+                        onChange={(e) => { 
+                          setSettings({...settings, sidebarBgColor: e.target.value}); 
+                          setHasChanges(true); 
+                          document.documentElement.style.setProperty('--sidebar-bg', e.target.value);
+                        }} 
+                      />
+                      <span>Sidebar Background</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="color" 
+                        value={settings.sidebarTextColor || '#b0b0cc'} 
+                        onChange={(e) => { 
+                          setSettings({...settings, sidebarTextColor: e.target.value}); 
+                          setHasChanges(true); 
+                          document.documentElement.style.setProperty('--sidebar-text', e.target.value);
+                        }} 
+                      />
+                      <span>Sidebar Text Color</span>
+                    </label>
+                  </div>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontSize: '0.8rem' }}>Sidebar Font Family</span>
+                    <select 
+                      style={{ padding: '6px 12px', borderRadius: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                      value={settings.sidebarFontFamily || 'Inter'}
+                      onChange={(e) => { 
+                        setSettings({...settings, sidebarFontFamily: e.target.value}); 
+                        setHasChanges(true); 
+                        const fontVal = e.target.value === 'System Default'
+                          ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                          : `'${e.target.value}', sans-serif`;
+                        document.documentElement.style.setProperty('--sidebar-font', fontVal);
+                      }}
+                    >
+                      <option value="Inter">Inter (Default)</option>
+                      <option value="Roboto">Roboto</option>
+                      <option value="Outfit">Outfit</option>
+                      <option value="JetBrains Mono">JetBrains Mono</option>
+                      <option value="System Default">System Default</option>
+                    </select>
+                  </label>
+                </div>
+
+                {/* Font Settings */}
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Typography & Fonts
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Font Family</span>
+                      <select 
+                        style={{ padding: '6px 12px', borderRadius: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                        value={settings.fontFamily || 'Inter'}
+                        onChange={(e) => { setSettings({...settings, fontFamily: e.target.value}); setHasChanges(true); }}
+                      >
+                        <option value="Inter">Inter (Default)</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Outfit">Outfit</option>
+                        <option value="JetBrains Mono">JetBrains Mono</option>
+                        <option value="System Default">System Default</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: '0.8rem' }}>Font Size Scale</span>
+                      <select 
+                        style={{ padding: '6px 12px', borderRadius: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                        value={settings.fontSizeScale || 'md'}
+                        onChange={(e) => { setSettings({...settings, fontSizeScale: e.target.value as any}); setHasChanges(true); }}
+                      >
+                        <option value="sm">Small (12px)</option>
+                        <option value="md">Standard (13px)</option>
+                        <option value="lg">Large (14px)</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                {/* TLDraw Canvas Board Preferences */}
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    TLDraw Canvas Board Settings
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Board Canvas Theme</span>
+                      <select 
+                        style={{ padding: '6px 12px', borderRadius: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                        value={settings.tldrawTheme || 'dark'}
+                        onChange={(e) => { setSettings({...settings, tldrawTheme: e.target.value as any}); setHasChanges(true); }}
+                      >
+                        <option value="dark">Dark Mode</option>
+                        <option value="light">Light Mode</option>
+                        <option value="match">Match App Theme</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Board Grid Style</span>
+                      <select 
+                        style={{ padding: '6px 12px', borderRadius: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                        value={settings.tldrawGridStyle || 'dots'}
+                        onChange={(e) => { setSettings({...settings, tldrawGridStyle: e.target.value as any}); setHasChanges(true); }}
+                      >
+                        <option value="dots">Dot Matrix Grid</option>
+                        <option value="lines">Line Grid</option>
+                        <option value="none">No Grid</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.tldrawSnapToGrid !== false} 
+                        onChange={(e) => { setSettings({...settings, tldrawSnapToGrid: e.target.checked}); setHasChanges(true); }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span>Snap Shapes & Images to Grid</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Layout */}
                 <div>
                   <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Layout
@@ -289,6 +471,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Reduce spacing in the sidebar and gallery for smaller screens</div>
                     </div>
                   </label>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'bulk' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Bulk Create Collections
+                  </h3>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                    Type or paste collection names line-by-line. Use <code style={{ background: 'var(--bg-surface)', padding: '2px 4px', borderRadius: 4 }}>Parent &gt; Subcollection</code> syntax for nested collections (e.g. <strong>Medieval &gt; Cyberpunk</strong>).
+                  </p>
+                  <textarea 
+                    placeholder={`Medieval > Cyberpunk\nMedieval > Gothic\nSci-Fi > Space Art\nCharacters`}
+                    id="bulkCollectionsInput"
+                    style={{ width: '100%', height: 100, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 6, padding: 10, fontSize: '0.85rem', fontFamily: 'monospace' }}
+                  />
+                  <button 
+                    className="btn btn--primary" 
+                    style={{ marginTop: 8 }}
+                    onClick={async () => {
+                      const input = (document.getElementById('bulkCollectionsInput') as HTMLTextAreaElement)?.value;
+                      if (input && input.trim()) {
+                        try {
+                          const { invoke } = await import('@tauri-apps/api/core');
+                          await invoke('bulk_create_collections', { rawInput: input, defaultColor: '#3b82f6' });
+                          alert('Bulk collections created successfully!');
+                          (document.getElementById('bulkCollectionsInput') as HTMLTextAreaElement).value = '';
+                          window.location.reload();
+                        } catch (e: any) {
+                          alert('Failed to bulk create collections: ' + e);
+                        }
+                      }
+                    }}
+                  >
+                    Create Collections
+                  </button>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Bulk Create Tags
+                  </h3>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                    Type or paste tag names line-by-line or comma-separated.
+                  </p>
+                  <textarea 
+                    placeholder={`concept, 3d, character, armor, environment`}
+                    id="bulkTagsInput"
+                    style={{ width: '100%', height: 90, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 6, padding: 10, fontSize: '0.85rem', fontFamily: 'monospace' }}
+                  />
+                  <button 
+                    className="btn btn--primary" 
+                    style={{ marginTop: 8 }}
+                    onClick={async () => {
+                      const input = (document.getElementById('bulkTagsInput') as HTMLTextAreaElement)?.value;
+                      if (input && input.trim()) {
+                        try {
+                          const { invoke } = await import('@tauri-apps/api/core');
+                          await invoke('bulk_create_tags', { rawInput: input });
+                          alert('Bulk tags created successfully!');
+                          (document.getElementById('bulkTagsInput') as HTMLTextAreaElement).value = '';
+                          window.location.reload();
+                        } catch (e: any) {
+                          alert('Failed to bulk create tags: ' + e);
+                        }
+                      }
+                    }}
+                  >
+                    Create Tags
+                  </button>
                 </div>
               </div>
             )}
@@ -337,21 +591,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       Import DB Backup
                     </button>
-                    <button 
-                      className="btn btn--secondary" 
-                      style={{ color: 'var(--color-error)' }} 
-                      onClick={async () => {
-                        try {
-                          const { invoke } = await import('@tauri-apps/api/core');
-                          await invoke('clear_temp_cache');
-                          alert('Temporary cache cleared successfully.');
-                        } catch (e: any) {
-                          alert('Failed to clear cache: ' + e);
-                        }
-                      }}
-                    >
-                      Clear Cache
-                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Cache & Fresh Data Reset
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                      <div>
+                        <div style={{ fontWeight: 500 }}>Clear Temporary Cache</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Removes WebView2 render cache and cleans missing database entries</div>
+                      </div>
+                      <button 
+                        className="btn btn--secondary" 
+                        onClick={async () => {
+                          try {
+                            const { invoke } = await import('@tauri-apps/api/core');
+                            const msg = await invoke('clear_temp_cache');
+                            alert(msg);
+                          } catch (e: any) {
+                            alert('Failed to clear cache: ' + e);
+                          }
+                        }}
+                      >
+                        Quick Cache Clear
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: 'rgba(240, 107, 107, 0.08)', border: '1px solid rgba(240, 107, 107, 0.2)', borderRadius: 6 }}>
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--color-error)' }}>Fresh App Data Reset</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Purges all cached data, WebView2 files, settings, and vault DB (matches dev fresh reset command)</div>
+                      </div>
+                      <button 
+                        className="btn btn--primary" 
+                        style={{ background: 'var(--color-error)', border: 'none' }}
+                        onClick={async () => {
+                          if (window.confirm("ARE YOU SURE? This will purge all application cache, WebView data, settings, and reset the vault DB. This action cannot be undone.")) {
+                            try {
+                              const { invoke } = await import('@tauri-apps/api/core');
+                              await invoke('purge_all_data');
+                              alert('App data reset complete. Reloading application...');
+                              window.location.reload();
+                            } catch (e: any) {
+                              alert('Failed to purge data: ' + e);
+                            }
+                          }
+                        }}
+                      >
+                        Full Fresh Reset
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

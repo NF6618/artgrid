@@ -257,6 +257,31 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
           </div>
         </div>
 
+        {/* Color Profile Swatches */}
+        {asset.palette && asset.palette.length > 0 && (
+          <div className="detail-panel__section">
+            <div className="detail-panel__section-title">Color Palette</div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {asset.palette.map((c, i) => (
+                <div 
+                  key={i} 
+                  title={c}
+                  style={{ 
+                    width: 24, 
+                    height: 24, 
+                    borderRadius: 4, 
+                    background: c, 
+                    border: '1px solid var(--border-subtle)',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                    cursor: 'pointer'
+                  }} 
+                  onClick={() => navigator.clipboard.writeText(c)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Tags */}
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Tags</div>

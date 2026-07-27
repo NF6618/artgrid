@@ -12,44 +12,119 @@ pub struct AppState {
     pub vault_path: Mutex<Option<PathBuf>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AssetData {
     pub id: String,
     pub title: String,
     pub filename: String,
-    pub filepath: String, // Relative to vault/media
+    pub filepath: String, // Relative to vault
     pub type_: String,
     pub size: String,
     pub width: u32,
     pub height: u32,
     pub favorite: bool,
     pub date_added: String,
-    pub url: String, // Usually local custom protocol url like `asset://...`
+    pub url: String,
     pub notes: Option<String>,
     pub archived: bool,
     pub trashed: bool,
     pub tags: Vec<String>,
     pub collections: Vec<String>,
+    pub palette: Option<Vec<String>>,
+    pub color_profile: Option<String>,
+}
+
+fn extract_color_palette(path: &PathBuf) -> (Option<Vec<String>>, Option<String>) {
+    if let Ok(img) = image::open(path) {
+        let resized = img.thumbnail(64, 64);
+        let rgb_img = resized.to_rgb8();
+        let pixels = rgb_img.pixels();
+        
+        let mut color_counts: std::collections::HashMap<(u8, u8, u8), u32> = std::collections::HashMap::new();
+        for p in pixels {
+            let r = (p[0] / 32) * 32 + 16;
+            let g = (p[1] / 32) * 32 + 16;
+            let b = (p[2] / 32) * 32 + 16;
+            *color_counts.entry((r, g, b)).or_insert(0) += 1;
+        }
+
+        let mut sorted: Vec<((u8, u8, u8), u32)> = color_counts.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+
+        let top_colors: Vec<String> = sorted.iter().take(5).map(|((r, g, b), _)| {
+            format!("#{:02x}{:02x}{:02x}", r, g, b)
+        }).collect();
+
+        let dominant_color = top_colors.first().cloned().unwrap_or_else(|| "#808080".to_string());
+        
+        let mut total_r = 0u64;
+        let mut total_g = 0u64;
+        let mut total_b = 0u64;
+        let count = rgb_img.pixels().len() as u64;
+        for p in rgb_img.pixels() {
+            total_r += p[0] as u64;
+            total_g += p[1] as u64;
+            total_b += p[2] as u64;
+        }
+        let avg_r = (total_r / count.max(1)) as f32;
+        let avg_g = (total_g / count.max(1)) as f32;
+        let avg_b = (total_b / count.max(1)) as f32;
+        let brightness = (0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b) / 255.0;
+        let temp = if avg_r > avg_b + 10.0 { "warm" } else if avg_b > avg_r + 10.0 { "cool" } else { "neutral" };
+
+        let profile_json = serde_json::json!({
+            "dominant": dominant_color,
+            "brightness": brightness,
+            "temperature": temp
+        }).to_string();
+
+        (Some(top_colors), Some(profile_json))
+    } else {
+        (None, None)
+    }
 }
 
 #[tauri::command]
 pub fn open_vault(path: String, state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
     let vault_dir = PathBuf::from(&path);
     
-    // Create vault directory if it doesn't exist
     if !vault_dir.exists() {
         fs::create_dir_all(&vault_dir).map_err(|e| e.to_string())?;
     }
+
+    // Encapsulate vault engine files inside the `artgrid` folder
+    let artgrid_dir = vault_dir.join("artgrid");
+    if !artgrid_dir.exists() {
+        fs::create_dir_all(&artgrid_dir).map_err(|e| e.to_string())?;
+    }
     
-    // Create media directory
-    let media_dir = vault_dir.join("media");
+    let media_dir = artgrid_dir.join("media");
     if !media_dir.exists() {
         fs::create_dir_all(&media_dir).map_err(|e| e.to_string())?;
     }
 
-    // Initialize Database
-    let db_path = vault_dir.join("artgrid.db");
-    let conn = crate::db::init_db(&db_path).map_err(|e| e.to_string())?;
+    // Legacy vault auto-migration: move legacy root `artgrid.db` and `media/` into `artgrid/`
+    let legacy_db = vault_dir.join("artgrid.db");
+    let target_db = artgrid_dir.join("artgrid.db");
+    if legacy_db.exists() && !target_db.exists() {
+        let _ = fs::rename(&legacy_db, &target_db);
+    }
+
+    let legacy_media = vault_dir.join("media");
+    if legacy_media.exists() {
+        if let Ok(entries) = fs::read_dir(&legacy_media) {
+            for entry in entries.flatten() {
+                let target = media_dir.join(entry.file_name());
+                if !target.exists() {
+                    let _ = fs::rename(entry.path(), target);
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(&legacy_media);
+    }
+
+    // Initialize Database in artgrid/ directory
+    let conn = crate::db::init_db(&target_db).map_err(|e| e.to_string())?;
     
     // Update State
     *state.db.lock().unwrap() = Some(conn);
@@ -68,17 +143,20 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
     
     let mut stmt = conn.prepare("
         SELECT 
-            a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url, a.notes, a.archived, a.trashed,
+            a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url, a.notes, a.archived, a.trashed, a.palette, a.color_profile,
             (SELECT GROUP_CONCAT(t.name) FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id) as tags,
             (SELECT GROUP_CONCAT(ac.collection_id) FROM asset_collections ac WHERE ac.asset_id = a.id) as collections
         FROM assets a
     ").map_err(|e| e.to_string())?;
     
     let asset_iter = stmt.query_map([], |row| {
-        let tags_str: Option<String> = row.get(14)?;
+        let palette_raw: Option<String> = row.get(14)?;
+        let palette: Option<Vec<String>> = palette_raw.and_then(|s| serde_json::from_str(&s).ok());
+        let color_profile: Option<String> = row.get(15)?;
+        let tags_str: Option<String> = row.get(16)?;
         let tags = tags_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
         
-        let cols_str: Option<String> = row.get(15)?;
+        let cols_str: Option<String> = row.get(17)?;
         let collections = cols_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
 
         Ok(AssetData {
@@ -96,6 +174,8 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
             notes: row.get(11)?,
             archived: row.get(12)?,
             trashed: row.get(13)?,
+            palette,
+            color_profile,
             tags,
             collections,
         })
@@ -126,36 +206,41 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
     let id = Uuid::new_v4().to_string();
     let ext = source_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
     
-    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf"];
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc"];
     if !supported_exts.contains(&ext.as_str()) {
         return Err("Unsupported file type".to_string());
     }
     
     let new_filename = format!("{}.{}", id, ext);
-    let dest_rel_path = PathBuf::from("media").join(&new_filename);
+    let dest_rel_path = PathBuf::from("artgrid").join("media").join(&new_filename);
     let dest_abs_path = vault_path.join(&dest_rel_path);
+
+    if let Some(parent) = dest_abs_path.parent() {
+        if !parent.exists() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
     
     // Copy file to vault
     fs::copy(&source_path, &dest_abs_path).map_err(|e| e.to_string())?;
     
-    // Read dimensions using image crate
+    // Read dimensions using image crate if image
     let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
+    let (palette, color_profile) = extract_color_palette(&dest_abs_path);
+    let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
     
     // Get file size
     let metadata = fs::metadata(&dest_abs_path).map_err(|e| e.to_string())?;
     let size_bytes = metadata.len();
-    let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0); // simple MB conversion
+    let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
     
     let now = Utc::now().to_rfc3339();
-    
-    // Convert absolute path to something the Tauri frontend can load
-    // Using Tauri's custom asset protocol (convert_file_src in JS)
-    // For now we'll just store the absolute path and format it in JS
     let url = dest_abs_path.to_string_lossy().into_owned(); 
     
     let type_ = match ext.as_str() {
         "md" | "txt" => "text/plain".to_string(),
         "pdf" => "application/pdf".to_string(),
+        "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
         _ => format!("image/{}", ext)
     };
     
@@ -174,14 +259,16 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
         notes: None,
         archived: false,
         trashed: false,
+        palette,
+        color_profile: color_profile.clone(),
         tags: vec![],
         collections: vec![],
     };
     
     // Insert into DB
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         (
             &asset.id,
             &asset.title,
@@ -194,6 +281,8 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
             &asset.favorite,
             &asset.date_added,
             &asset.url,
+            &palette_json,
+            &color_profile,
         ),
     ).map_err(|e| e.to_string())?;
     
@@ -205,7 +294,6 @@ pub fn toggle_favorite(id: String, state: State<'_, AppState>) -> Result<bool, S
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
     
-    // First, get the current favorite status
     let mut stmt = conn.prepare("SELECT favorite FROM assets WHERE id = ?1").map_err(|e| e.to_string())?;
     let mut rows = stmt.query([&id]).map_err(|e| e.to_string())?;
     
@@ -213,7 +301,6 @@ pub fn toggle_favorite(id: String, state: State<'_, AppState>) -> Result<bool, S
         let current_favorite: bool = row.get(0).map_err(|e| e.to_string())?;
         let new_favorite = !current_favorite;
         
-        // Update the database
         conn.execute(
             "UPDATE assets SET favorite = ?1 WHERE id = ?2",
             (&new_favorite, &id),
@@ -244,12 +331,20 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
     
     let filename = format!("web_import_{}.{}", id.chars().take(8).collect::<String>(), ext);
     let new_filename = format!("{}.{}", id, ext);
-    let dest_rel_path = PathBuf::from("media").join(&new_filename);
+    let dest_rel_path = PathBuf::from("artgrid").join("media").join(&new_filename);
     let dest_abs_path = vault_path.join(&dest_rel_path);
+
+    if let Some(parent) = dest_abs_path.parent() {
+        if !parent.exists() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
     
     fs::write(&dest_abs_path, bytes).map_err(|e| e.to_string())?;
     
     let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
+    let (palette, color_profile) = extract_color_palette(&dest_abs_path);
+    let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
     let metadata = fs::metadata(&dest_abs_path).map_err(|e| e.to_string())?;
     let size_bytes = metadata.len();
     let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
@@ -274,13 +369,15 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
         notes: None,
         archived: false,
         trashed: false,
+        palette,
+        color_profile: color_profile.clone(),
         tags: vec![],
         collections: vec![],
     };
     
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         (
             &asset.id,
             &asset.title,
@@ -296,6 +393,8 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
             &asset.notes,
             &asset.archived,
             &asset.trashed,
+            &palette_json,
+            &color_profile,
         ),
     ).map_err(|e| e.to_string())?;
     
@@ -349,7 +448,6 @@ pub fn rename_asset(id: String, new_title: String, new_filename: String, state: 
     let vault_lock = state.vault_path.lock().unwrap();
     let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
 
-    // Get current filepath
     let mut stmt = conn.prepare("SELECT filepath FROM assets WHERE id = ?1").map_err(|e| e.to_string())?;
     let current_filepath: String = stmt.query_row([&id], |row| row.get(0)).map_err(|e| e.to_string())?;
 
@@ -362,7 +460,7 @@ pub fn rename_asset(id: String, new_title: String, new_filename: String, state: 
         format!("{}.{}", new_filename, ext)
     };
 
-    let new_rel_path = PathBuf::from("media").join(&formatted_new_filename);
+    let new_rel_path = PathBuf::from("artgrid").join("media").join(&formatted_new_filename);
     let new_abs_path = vault_path.join(&new_rel_path);
 
     if old_abs_path.exists() && old_abs_path != new_abs_path {
@@ -384,12 +482,13 @@ pub fn export_db_backup(destination_path: String, state: State<'_, AppState>) ->
     let vault_lock = state.vault_path.lock().unwrap();
     let vault_path = vault_lock.as_ref().ok_or("No vault opened")?;
 
-    let db_path = vault_path.join("artgrid.db");
-    if !db_path.exists() {
+    let db_path = vault_path.join("artgrid").join("artgrid.db");
+    let target_db = if db_path.exists() { db_path } else { vault_path.join("artgrid.db") };
+    if !target_db.exists() {
         return Err("Database file does not exist".to_string());
     }
 
-    fs::copy(&db_path, PathBuf::from(destination_path)).map_err(|e| e.to_string())?;
+    fs::copy(&target_db, PathBuf::from(destination_path)).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -403,7 +502,10 @@ pub fn import_db_backup(source_path: String, state: State<'_, AppState>) -> Resu
         return Err("Backup file does not exist".to_string());
     }
 
-    let dest = vault_path.join("artgrid.db");
+    let dest = vault_path.join("artgrid").join("artgrid.db");
+    if let Some(parent) = dest.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
     fs::copy(&src, &dest).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -432,7 +534,8 @@ pub fn clear_temp_cache(state: State<'_, AppState>) -> Result<String, String> {
 
         for (id, rel_filepath) in asset_rows {
             let abs_path = vault_path.join(&rel_filepath);
-            if !abs_path.exists() {
+            let legacy_abs = vault_path.join(rel_filepath.trim_start_matches("artgrid/"));
+            if !abs_path.exists() && !legacy_abs.exists() {
                 let _ = conn.execute("DELETE FROM asset_tags WHERE asset_id = ?1", [&id]);
                 let _ = conn.execute("DELETE FROM asset_collections WHERE asset_id = ?1", [&id]);
                 let _ = conn.execute("DELETE FROM assets WHERE id = ?1", [&id]);
@@ -443,4 +546,30 @@ pub fn clear_temp_cache(state: State<'_, AppState>) -> Result<String, String> {
 
     Ok(format!("Cache cleared successfully. Cleaned {} missing/orphaned database entries.", cleaned_count))
 }
+
+#[tauri::command]
+pub fn purge_all_data(state: State<'_, AppState>) -> Result<String, String> {
+    // 1. Clear webview dev cache
+    let wv2_cache = std::env::temp_dir().join("artgrid_webview2_dev");
+    if wv2_cache.exists() {
+        let _ = fs::remove_dir_all(&wv2_cache);
+    }
+
+    // 2. Clear vault DB & media if opened
+    let mut db_lock = state.db.lock().unwrap();
+    let mut vault_lock = state.vault_path.lock().unwrap();
+
+    if let Some(vault_path) = vault_lock.as_ref() {
+        let artgrid_dir = vault_path.join("artgrid");
+        if artgrid_dir.exists() {
+            let _ = fs::remove_dir_all(&artgrid_dir);
+        }
+    }
+
+    *db_lock = None;
+    *vault_lock = None;
+
+    Ok("All application data, temporary cache, and vault database have been completely reset.".to_string())
+}
+
 

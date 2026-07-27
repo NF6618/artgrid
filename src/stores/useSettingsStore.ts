@@ -16,7 +16,17 @@ export interface AppSettings {
   autoWatch: boolean;
   compactMode: boolean;
   bgBaseColor?: string;
+  bgSecondaryColor?: string;
   accentColor?: string;
+  textPrimaryColor?: string;
+  fontFamily?: string;
+  fontSizeScale?: 'sm' | 'md' | 'lg';
+  sidebarBgColor?: string;
+  sidebarTextColor?: string;
+  sidebarFontFamily?: string;
+  tldrawTheme?: 'dark' | 'light' | 'match';
+  tldrawGridStyle?: 'dots' | 'lines' | 'none';
+  tldrawSnapToGrid?: boolean;
 }
 
 interface SettingsState extends AppSettings {
@@ -37,7 +47,46 @@ const defaultSettings: AppSettings = {
   autoWatch: true,
   compactMode: false,
   bgBaseColor: '#0a0a0f',
+  bgSecondaryColor: '#16161f',
   accentColor: '#7c6bf0',
+  textPrimaryColor: '#e8e8f0',
+  fontFamily: 'Inter',
+  fontSizeScale: 'md',
+  sidebarBgColor: '#0e0e17',
+  sidebarTextColor: '#b0b0cc',
+  sidebarFontFamily: 'Inter',
+  tldrawTheme: 'dark',
+  tldrawGridStyle: 'dots',
+  tldrawSnapToGrid: true,
+};
+
+const applyStyleSettings = (settings: Partial<AppSettings>) => {
+  const root = document.documentElement;
+  if (settings.bgBaseColor) root.style.setProperty('--bg-base', settings.bgBaseColor);
+  if (settings.bgSecondaryColor) root.style.setProperty('--bg-secondary', settings.bgSecondaryColor);
+  if (settings.accentColor) root.style.setProperty('--accent-primary', settings.accentColor);
+  if (settings.textPrimaryColor) root.style.setProperty('--text-primary', settings.textPrimaryColor);
+
+  if (settings.sidebarBgColor) root.style.setProperty('--sidebar-bg', settings.sidebarBgColor);
+  if (settings.sidebarTextColor) root.style.setProperty('--sidebar-text', settings.sidebarTextColor);
+  if (settings.sidebarFontFamily) {
+    const sidebarFontVal = settings.sidebarFontFamily === 'System Default'
+      ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      : `'${settings.sidebarFontFamily}', sans-serif`;
+    root.style.setProperty('--sidebar-font', sidebarFontVal);
+  }
+
+  if (settings.fontFamily) {
+    const fontVal = settings.fontFamily === 'System Default'
+      ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      : `'${settings.fontFamily}', sans-serif`;
+    root.style.setProperty('--font-family', fontVal);
+  }
+
+  if (settings.fontSizeScale) {
+    const sizeMap = { sm: '12px', md: '13px', lg: '14px' };
+    root.style.setProperty('--font-size-base', sizeMap[settings.fontSizeScale] || '13px');
+  }
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -51,26 +100,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
       
       const savedSettings = await storeInstance.get<Partial<AppSettings>>('app_settings');
+      const merged = { ...defaultSettings, ...(savedSettings || {}) };
       
       set({ 
-        ...defaultSettings,
-        ...(savedSettings || {}),
+        ...merged,
         isLoaded: true 
       });
       
       // Apply theme
-      const theme = savedSettings?.theme || defaultSettings.theme;
+      const theme = merged.theme;
       if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.setAttribute('data-theme', 'dark');
       } else {
         document.documentElement.setAttribute('data-theme', 'light');
       }
 
-      // Apply custom colors
-      const bgBase = savedSettings?.bgBaseColor || defaultSettings.bgBaseColor;
-      const accent = savedSettings?.accentColor || defaultSettings.accentColor;
-      if (bgBase) document.documentElement.style.setProperty('--bg-base', bgBase);
-      if (accent) document.documentElement.style.setProperty('--accent-primary', accent);
+      // Apply styles
+      applyStyleSettings(merged);
 
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -81,14 +127,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   updateSettings: async (newSettings) => {
     const current = get();
     const updated = {
-      vaultPath: current.vaultPath,
-      vaults: current.vaults,
-      theme: current.theme,
-      defaultView: current.defaultView,
-      autoWatch: current.autoWatch,
-      compactMode: current.compactMode,
-      bgBaseColor: current.bgBaseColor,
-      accentColor: current.accentColor,
+      ...current,
       ...newSettings,
     };
     
@@ -104,12 +143,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
     }
 
-    if (newSettings.bgBaseColor) {
-      document.documentElement.style.setProperty('--bg-base', newSettings.bgBaseColor);
-    }
-    if (newSettings.accentColor) {
-      document.documentElement.style.setProperty('--accent-primary', newSettings.accentColor);
-    }
+    applyStyleSettings(newSettings);
 
     try {
       if (!storeInstance) {
@@ -124,10 +158,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   addVault: async (name: string, path: string) => {
     const current = get();
-    // Check if path already exists
     const existing = current.vaults.find(v => v.path === path);
     if (existing) {
-      // Just update lastOpened
       const updatedVaults = current.vaults.map(v => 
         v.path === path ? { ...v, name, lastOpened: Date.now() } : v
       );
@@ -150,3 +182,4 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     await get().updateSettings({ vaults: updatedVaults });
   }
 }));
+

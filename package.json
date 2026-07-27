@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:fresh": "node scripts/dev-fresh.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -16,10 +17,11 @@
     "@tauri-apps/plugin-log": "^2.9.0",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-store": "^2.4.4",
-    "pixi-viewport": "^5.1.0",
-    "pixi.js": "^7.4.3",
+    "mammoth": "^1.8.0",
+    "pdfjs-dist": "^3.11.174",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tldraw": "^5.2.5",
     "uuid": "^14.0.1",
     "zustand": "^5.0.14"
   },

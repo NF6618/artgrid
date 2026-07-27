@@ -4,7 +4,7 @@ import { Toolbar } from './components/Toolbar';
 import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
-import { BoardCanvas, BoardCanvasHandle } from './components/BoardCanvas';
+import { BoardCanvas } from './features/board/components/BoardCanvas';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
@@ -15,10 +15,10 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useMetadataStore } from './stores/useMetadataStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
+import { Titlebar } from './components/Titlebar';
 
 type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 type ViewMode = 'grid' | 'list' | 'board';
-export type ToolType = 'select' | 'pan' | 'text' | 'shape' | 'draw' | 'link' | 'sticky' | 'section';
 
 const App: React.FC = () => {
   // Navigation state
@@ -62,9 +62,7 @@ const App: React.FC = () => {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Board state via Zustand
-  const { boards, activeBoardId, loadBoards, createBoard, updateBoardNodes, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
-  const activeBoard = boards.find(b => b.id === activeBoardId);
+  const { boards, activeBoardId, loadBoards, createBoard, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
 
   // Load boards when vault is available
   React.useEffect(() => {
@@ -102,10 +100,6 @@ const App: React.FC = () => {
 
   // Metadata Store
   const { collections } = useMetadataStore();
-
-  // Canvas Tools
-  const [activeTool, setActiveTool] = useState<ToolType>('select');
-  const boardCanvasRef = React.useRef<BoardCanvasHandle>(null);
 
   // Inline board rename state
   const [renamingBoardId, setRenamingBoardId] = useState<string | null>(null);
@@ -154,6 +148,13 @@ const App: React.FC = () => {
   const [boardSortBy, setBoardSortBy] = useState('date');
 
   // Filter assets by view (Archive/Trash vs Normal)
+  // Filter and Toolbar state
+  const [showImageNames, setShowImageNames] = useState(true);
+  const [filterType, setFilterType] = useState('all');
+  const [colorFilter, setColorFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('date');
+
+  // Filter assets by view (Archive/Trash vs Normal)
   let filteredAssets: Asset[] = assets;
 
   if (activeView === 'trash') {
@@ -171,6 +172,24 @@ const App: React.FC = () => {
   if (activeTag) {
     filteredAssets = filteredAssets.filter(a => a.tags && a.tags.includes(activeTag));
   }
+
+  if (filterType !== 'all') {
+    if (filterType === 'image') filteredAssets = filteredAssets.filter(a => a.type.startsWith('image/'));
+    else if (filterType === 'pdf') filteredAssets = filteredAssets.filter(a => a.type === 'application/pdf');
+    else if (filterType === 'text') filteredAssets = filteredAssets.filter(a => a.type.startsWith('text/'));
+  }
+
+  if (colorFilter !== 'all') {
+    filteredAssets = filteredAssets.filter(a => {
+      if (!(a as any).color_profile) return false;
+      try {
+        const parsed = JSON.parse((a as any).color_profile);
+        return parsed.temperature === colorFilter;
+      } catch {
+        return false;
+      }
+    });
+  }
   
   if (activeView === 'favorites') {
     filteredAssets = filteredAssets.filter(a => a.favorite);
@@ -178,6 +197,14 @@ const App: React.FC = () => {
     filteredAssets = filteredAssets.filter(a => !a.tags || a.tags.length === 0);
   } else if (activeView === 'recent') {
     filteredAssets = [...filteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
+  }
+
+  if (sortBy === 'name') {
+    filteredAssets = [...filteredAssets].sort((a, b) => a.title.localeCompare(b.title));
+  } else if (sortBy === 'size') {
+    filteredAssets = [...filteredAssets].sort((a, b) => (parseFloat(b.size) || 0) - (parseFloat(a.size) || 0));
+  } else if (sortBy === 'dimensions') {
+    filteredAssets = [...filteredAssets].sort((a, b) => (b.width * b.height) - (a.width * a.height));
   }
 
   if (searchQuery) {
@@ -208,6 +235,53 @@ const App: React.FC = () => {
     boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
   }
 
+  // Navigation History Stack (Back / Forward)
+  const [navHistory, setNavHistory] = useState<Array<{ view: ViewType; collection: string | null; tag: string | null }>>([
+    { view: 'library', collection: null, tag: null }
+  ]);
+  const [navIndex, setNavIndex] = useState(0);
+
+  const handleNavViewChange = (newView: ViewType) => {
+    if (newView === activeView && !activeCollection && !activeTag) return;
+    setActiveView(newView);
+    setActiveCollection(null);
+    setActiveTag(null);
+    setNavHistory(prev => [...prev.slice(0, navIndex + 1), { view: newView, collection: null, tag: null }]);
+    setNavIndex(i => i + 1);
+  };
+
+  const handleNavCollectionChange = (colId: string | null) => {
+    setActiveCollection(colId);
+    setNavHistory(prev => [...prev.slice(0, navIndex + 1), { view: activeView, collection: colId, tag: activeTag }]);
+    setNavIndex(i => i + 1);
+  };
+
+  const handleNavTagChange = (tagName: string | null) => {
+    setActiveTag(tagName);
+    setNavHistory(prev => [...prev.slice(0, navIndex + 1), { view: activeView, collection: activeCollection, tag: tagName }]);
+    setNavIndex(i => i + 1);
+  };
+
+  const handleGoBack = () => {
+    if (navIndex > 0) {
+      const prev = navHistory[navIndex - 1];
+      setNavIndex(navIndex - 1);
+      setActiveView(prev.view);
+      setActiveCollection(prev.collection);
+      setActiveTag(prev.tag);
+    }
+  };
+
+  const handleGoForward = () => {
+    if (navIndex < navHistory.length - 1) {
+      const next = navHistory[navIndex + 1];
+      setNavIndex(navIndex + 1);
+      setActiveView(next.view);
+      setActiveCollection(next.collection);
+      setActiveTag(next.tag);
+    }
+  };
+
   // Get title based on active view
   const getViewTitle = () => {
     switch (activeView) {
@@ -226,19 +300,25 @@ const App: React.FC = () => {
 
   return (
     <>
-      {/* Custom Titlebar — hidden while using native decorations */}
-      {/* <Titlebar title="ArtGrid" /> */}
+      {/* Custom Titlebar */}
+      <Titlebar 
+        title={`ArtGrid — ${getViewTitle()}`}
+        canGoBack={navIndex > 0}
+        canGoForward={navIndex < navHistory.length - 1}
+        onGoBack={handleGoBack}
+        onGoForward={handleGoForward}
+      />
 
       {/* Main Layout */}
       <div className={`app-layout ${compactMode ? 'app-layout--compact' : ''}`}>
         {/* Sidebar */}
         <Sidebar
           activeView={activeView}
-          onViewChange={setActiveView}
+          onViewChange={handleNavViewChange}
           activeCollection={activeCollection}
-          onCollectionChange={setActiveCollection}
+          onCollectionChange={handleNavCollectionChange}
           activeTag={activeTag}
-          onTagChange={setActiveTag}
+          onTagChange={handleNavTagChange}
           onImport={importFiles}
           onSettings={() => setShowSettings(true)}
           stats={{
@@ -262,6 +342,14 @@ const App: React.FC = () => {
             title={getViewTitle()}
             itemCount={filteredAssets.length}
             onRefresh={loadAssets}
+            filterType={filterType}
+            onFilterTypeChange={setFilterType}
+            colorFilter={colorFilter}
+            onColorFilterChange={setColorFilter}
+            sortBy={sortBy}
+            onSortByChange={setSortBy}
+            showImageNames={showImageNames}
+            onToggleImageNames={() => setShowImageNames(v => !v)}
           />
 
           {/* Main content + detail panel */}
@@ -290,6 +378,8 @@ const App: React.FC = () => {
                 onToggleFavorite={handleToggleFavorite}
                 onImport={importFiles}
                 viewMode={viewMode}
+                showImageNames={showImageNames}
+                onAssetsUpdated={loadAssets}
               />
             ) : activeView === 'boards' ? (
               boards.length === 0 ? (
@@ -495,128 +585,14 @@ const App: React.FC = () => {
                         title="New board"
                       >+</button>
 
-                      {/* Section navigation chips (derived from section nodes) */}
-                      {(activeBoard?.nodes.filter(n => n.type === 'section') ?? []).length > 0 && (
-                        <>
-                          <div style={{ width: 1, height: 20, background: 'var(--border-subtle)', margin: '0 4px', flexShrink: 0 }} />
-                          {activeBoard!.nodes
-                            .filter(n => n.type === 'section')
-                            .map(sectionNode => (
-                              <button
-                                key={sectionNode.id}
-                                onClick={() => boardCanvasRef.current?.jumpToNode(sectionNode.id)}
-                                style={{
-                                  padding: '3px 10px', fontSize: '11px', flexShrink: 0,
-                                  border: `1px solid ${sectionNode.data.sectionColor ?? '#7c6bf0'}55`,
-                                  borderRadius: 20,
-                                  background: `${sectionNode.data.sectionColor ?? '#7c6bf0'}22`,
-                                  color: sectionNode.data.sectionColor ?? '#7c6bf0',
-                                  cursor: 'pointer', fontFamily: 'var(--font-family)',
-                                  fontWeight: 500, transition: 'all 0.15s',
-                                }}
-                                onMouseEnter={e => (e.currentTarget.style.background = `${sectionNode.data.sectionColor ?? '#7c6bf0'}44`)}
-                                onMouseLeave={e => (e.currentTarget.style.background = `${sectionNode.data.sectionColor ?? '#7c6bf0'}22`)}
-                                title={`Jump to: ${sectionNode.data.text}`}
-                              >
-                                📐 {sectionNode.data.text}
-                              </button>
-                            ))
-                          }
-                        </>
-                      )}
+
                     </div>
 
                     {/* ── Canvas (offset below tab strip) ── */}
                     <div style={{ position: 'absolute', top: 45, bottom: 0, left: 0, right: 0 }}>
-                      <BoardCanvas
-                        ref={boardCanvasRef}
-                        nodes={activeBoard?.nodes || []}
-                        onNodesChange={nodes => { if (activeBoardId) updateBoardNodes(activeBoardId, nodes); }}
-                        activeTool={activeTool}
-                        onToolChange={setActiveTool}
-                        onUndo={() => { if (activeBoardId) useBoardStore.getState().undoNodes(activeBoardId); }}
-                        onRedo={() => { if (activeBoardId) useBoardStore.getState().redoNodes(activeBoardId); }}
-                        onDuplicate={nodeId => { if (activeBoardId) useBoardStore.getState().duplicateNode(activeBoardId, nodeId); }}
-                        onMoveToFront={nodeId => { if (activeBoardId) useBoardStore.getState().moveNodeToFront(activeBoardId, nodeId); }}
-                        onMoveToBack={nodeId => { if (activeBoardId) useBoardStore.getState().moveNodeToBack(activeBoardId, nodeId); }}
-                      />
+                      <BoardCanvas />
                     </div>
 
-                    {/* ── Floating Toolbar ── */}
-                    <div className="canvas-toolbar">
-                      {([
-                        { tool: 'select' as ToolType, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /></svg>, title: 'Select · V' },
-                        { tool: 'pan' as ToolType, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}><path d="M18 11V6a2 2 0 0 0-4 0v5m0 0V4a2 2 0 0 0-4 0v7m0 0V6a2 2 0 0 0-4 0v7m0-2a2 2 0 0 0-4 0v5a8 8 0 0 0 16 0v-2a2 2 0 0 0-4 0" /></svg>, title: 'Pan · H' },
-                      ] as const).map(({ tool, icon, title }) => (
-                        <button key={tool} className={`toolbar__btn ${activeTool === tool ? 'toolbar__btn--active' : ''}`} title={title} onClick={() => setActiveTool(tool)}>{icon}</button>
-                      ))}
-
-                      <div className="toolbar__separator" />
-
-                      {/* Text */}
-                      <button className={`toolbar__btn ${activeTool === 'text' ? 'toolbar__btn--active' : ''}`} title="Text Note — click canvas to place · T"
-                        onClick={() => setActiveTool('text')}>
-                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />
-                        </svg>
-                      </button>
-
-                      {/* Shape */}
-                      <button className={`toolbar__btn ${activeTool === 'shape' ? 'toolbar__btn--active' : ''}`} title="Shape Frame — click canvas · S"
-                        onClick={() => setActiveTool('shape')}>
-                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                        </svg>
-                      </button>
-
-                      {/* Sticky */}
-                      <button className={`toolbar__btn ${activeTool === 'sticky' ? 'toolbar__btn--active' : ''}`} title="Sticky Note — click canvas to place"
-                        onClick={() => setActiveTool('sticky')}>
-                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" /><polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </button>
-
-                      {/* Section */}
-                      <button className={`toolbar__btn ${activeTool === 'section' ? 'toolbar__btn--active' : ''}`} title="Section / Named Region — click canvas to place"
-                        onClick={() => setActiveTool('section')}>
-                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-                        </svg>
-                      </button>
-
-                      {/* Draw */}
-                      <button className={`toolbar__btn ${activeTool === 'draw' ? 'toolbar__btn--active' : ''}`} title="Freehand Draw · D"
-                        onClick={() => setActiveTool('draw')}>
-                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><circle cx="11" cy="11" r="2" />
-                        </svg>
-                      </button>
-
-                      {/* Link */}
-                      <button className={`toolbar__btn ${activeTool === 'link' ? 'toolbar__btn--active' : ''}`} title="Connect Arrow · L"
-                        onClick={() => setActiveTool('link')}>
-                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-                        </svg>
-                      </button>
-
-                      <div className="toolbar__separator" />
-
-                      {/* Undo / Redo */}
-                      <button className="toolbar__btn" title="Undo · ⌘Z"
-                        onClick={() => { if (activeBoardId) useBoardStore.getState().undoNodes(activeBoardId); }}>
-                        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <polyline points="9 14 4 9 9 4" /><path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-                        </svg>
-                      </button>
-                      <button className="toolbar__btn" title="Redo · ⌘⇧Z"
-                        onClick={() => { if (activeBoardId) useBoardStore.getState().redoNodes(activeBoardId); }}>
-                        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                          <polyline points="15 14 20 9 15 4" /><path d="M4 20v-7a4 4 0 0 1 4-4h12" />
-                        </svg>
-                      </button>
-                    </div>
 
                   </div>
                 </div>
@@ -683,6 +659,7 @@ const App: React.FC = () => {
         asset={previewAsset}
         visible={previewAsset !== null}
         onClose={() => setPreviewAsset(null)}
+        onAssetsUpdated={loadAssets}
       />
     </>
   );

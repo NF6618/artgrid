@@ -16,6 +16,8 @@ export interface Asset {
   dateAdded: string;
   palette?: string[];
   url: string;
+  filepath?: string;
+  color_profile?: string;
   notes?: string;
   archived?: boolean;
   trashed?: boolean;
@@ -37,6 +39,8 @@ interface GalleryProps {
   onToggleFavorite: (id: string) => void;
   onImport?: (paths?: string[]) => void;
   viewMode?: 'grid' | 'list' | 'board';
+  showImageNames?: boolean;
+  onAssetsUpdated?: () => void;
 }
 
 export const Gallery: React.FC<GalleryProps> = ({
@@ -46,9 +50,17 @@ export const Gallery: React.FC<GalleryProps> = ({
   onPreviewAsset,
   onToggleFavorite,
   onImport,
-  viewMode = 'grid'
+  viewMode = 'grid',
+  showImageNames = true,
+  onAssetsUpdated
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  
+  // Marquee selection box state
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -78,13 +90,123 @@ export const Gallery: React.FC<GalleryProps> = ({
   }, [onImport]);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, asset: Asset) => {
-    // Send standard JSON representation for the drop target
     e.dataTransfer.setData('application/json', JSON.stringify({
       id: asset.id,
       url: asset.url,
       title: asset.title
     }));
     e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  // Selection handlers
+  const handleCardClick = (e: React.MouseEvent, asset: Asset) => {
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIds(prev => prev.includes(asset.id) ? prev.filter(id => id !== asset.id) : [...prev, asset.id]);
+    } else if (e.shiftKey && selectedIds.length > 0) {
+      const lastIndex = assets.findIndex(a => a.id === selectedIds[selectedIds.length - 1]);
+      const currentIndex = assets.findIndex(a => a.id === asset.id);
+      const start = Math.min(lastIndex, currentIndex);
+      const end = Math.max(lastIndex, currentIndex);
+      const rangeIds = assets.slice(start, end + 1).map(a => a.id);
+      setSelectedIds(Array.from(new Set([...selectedIds, ...rangeIds])));
+    } else {
+      setSelectedIds([asset.id]);
+    }
+    onSelectAsset(asset);
+  };
+
+  // Mouse marquee box drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.gallery__card') || (e.target as HTMLElement).closest('button')) {
+      return;
+    }
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left + containerRef.current.scrollLeft;
+    const y = e.clientY - rect.top + containerRef.current.scrollTop;
+
+    setIsSelecting(true);
+    setSelectionBox({ startX: x, startY: y, currentX: x, currentY: y });
+    if (!e.ctrlKey && !e.shiftKey) {
+      setSelectedIds([]);
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isSelecting || !selectionBox || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const currentX = e.clientX - rect.left + containerRef.current.scrollLeft;
+    const currentY = e.clientY - rect.top + containerRef.current.scrollTop;
+
+    setSelectionBox(prev => prev ? { ...prev, currentX, currentY } : null);
+
+    const boxLeft = Math.min(selectionBox.startX, currentX);
+    const boxRight = Math.max(selectionBox.startX, currentX);
+    const boxTop = Math.min(selectionBox.startY, currentY);
+    const boxBottom = Math.max(selectionBox.startY, currentY);
+
+    const cardElements = containerRef.current.querySelectorAll('[data-asset-id]');
+    const newlySelected: string[] = [];
+
+    cardElements.forEach(el => {
+      const cardId = el.getAttribute('data-asset-id');
+      const htmlEl = el as HTMLElement;
+      const elLeft = htmlEl.offsetLeft;
+      const elTop = htmlEl.offsetTop;
+      const elRight = elLeft + htmlEl.offsetWidth;
+      const elBottom = elTop + htmlEl.offsetHeight;
+
+      const intersects = !(elRight < boxLeft || elLeft > boxRight || elBottom < boxTop || elTop > boxBottom);
+      if (intersects && cardId) {
+        newlySelected.push(cardId);
+      }
+    });
+
+    setSelectedIds(newlySelected);
+  };
+
+  const handleMouseUp = () => {
+    setIsSelecting(false);
+    setSelectionBox(null);
+  };
+
+  // Bulk Operations
+  const handleBulkFavorite = async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    for (const id of selectedIds) {
+      await invoke('toggle_favorite', { id });
+    }
+    if (onAssetsUpdated) onAssetsUpdated();
+  };
+
+  const handleBulkArchive = async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    for (const id of selectedIds) {
+      await invoke('archive_asset', { id, archived: true });
+    }
+    if (onAssetsUpdated) onAssetsUpdated();
+  };
+
+  const handleBulkTrash = async () => {
+    if (window.confirm(`Move ${selectedIds.length} assets to Trash?`)) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      for (const id of selectedIds) {
+        await invoke('trash_asset', { id, trashed: true });
+      }
+      setSelectedIds([]);
+      if (onAssetsUpdated) onAssetsUpdated();
+    }
+  };
+
+  const handleBulkAddTag = async () => {
+    const tagName = prompt(`Enter tag name to add to ${selectedIds.length} assets:`);
+    if (tagName && tagName.trim()) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      for (const id of selectedIds) {
+        await invoke('add_tag_to_asset', { assetId: id, tagName: tagName.trim() });
+      }
+      if (onAssetsUpdated) onAssetsUpdated();
+    }
   };
 
   if (assets.length === 0) {
@@ -114,13 +236,43 @@ export const Gallery: React.FC<GalleryProps> = ({
     );
   }
 
+  const boxRect = selectionBox ? {
+    left: Math.min(selectionBox.startX, selectionBox.currentX),
+    top: Math.min(selectionBox.startY, selectionBox.currentY),
+    width: Math.abs(selectionBox.currentX - selectionBox.startX),
+    height: Math.abs(selectionBox.currentY - selectionBox.startY)
+  } : null;
+
   return (
     <div
+      ref={containerRef}
       className="gallery"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      style={{ position: 'relative' }}
     >
+      {/* Selection Box Overlay */}
+      {isSelecting && boxRect && (
+        <div 
+          style={{
+            position: 'absolute',
+            left: boxRect.left,
+            top: boxRect.top,
+            width: boxRect.width,
+            height: boxRect.height,
+            border: '1px solid var(--accent-primary)',
+            background: 'rgba(124, 107, 240, 0.18)',
+            pointerEvents: 'none',
+            zIndex: 1000,
+            borderRadius: 4
+          }}
+        />
+      )}
+
       {/* Drop zone overlay */}
       <div className={`drop-zone ${isDragOver ? 'drop-zone--active' : ''}`}>
         <div className="drop-zone__content">
@@ -129,6 +281,35 @@ export const Gallery: React.FC<GalleryProps> = ({
           <div className="drop-zone__hint">Images, videos, documents, and more</div>
         </div>
       </div>
+
+      {/* Floating Bulk Action Bar */}
+      {selectedIds.length > 1 && (
+        <div style={{
+          position: 'fixed',
+          bottom: 40,
+          right: 360,
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--accent-primary)',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+          borderRadius: 8,
+          padding: '8px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          zIndex: 1500,
+          backdropFilter: 'blur(8px)'
+        }}>
+          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+            {selectedIds.length} items selected
+          </span>
+          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+          <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={handleBulkAddTag}>+ Tag</button>
+          <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={handleBulkFavorite}>★ Favorite</button>
+          <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={handleBulkArchive}>📁 Archive</button>
+          <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-error)' }} onClick={handleBulkTrash}>🗑 Trash</button>
+          <button className="toolbar__btn" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => setSelectedIds([])}>✕</button>
+        </div>
+      )}
 
       {/* Masonry-style grid or tabular list */}
       {viewMode === 'list' ? (
@@ -153,12 +334,13 @@ export const Gallery: React.FC<GalleryProps> = ({
           </div>
 
           {assets.map((asset) => {
-            const isSelected = selectedAsset?.id === asset.id;
+            const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
             return (
               <div
                 key={asset.id}
+                data-asset-id={asset.id}
                 className={`gallery__list-row ${isSelected ? 'gallery__card--selected' : ''}`}
-                onClick={() => onSelectAsset(asset)}
+                onClick={(e) => handleCardClick(e, asset)}
                 onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
                 draggable
                 onDragStart={(e) => handleDragStart(e, asset)}
@@ -168,7 +350,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                   alignItems: 'center',
                   padding: '8px 16px',
                   background: isSelected ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                  border: '1px solid var(--border-subtle)',
+                  border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
                   borderRadius: 'var(--radius-md)',
                   marginBottom: 6,
                   cursor: 'pointer',
@@ -179,7 +361,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                   <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
                 <div style={{ fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {asset.title}
+                  {showImageNames ? asset.title : '••••••••'}
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{asset.filename}</div>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{asset.width} × {asset.height}</div>
@@ -214,7 +396,7 @@ export const Gallery: React.FC<GalleryProps> = ({
       ) : (
         <div className={`gallery__layout--${viewMode}`}>
           {assets.map((asset) => {
-            const isSelected = selectedAsset?.id === asset.id;
+            const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
             const bgGradient = generateGradient(asset.palette);
             const aspectRatios = ['3/4', '4/3', '1/1', '3/2', '2/3', '16/9', '4/5'];
             const aspectRatio = aspectRatios[parseInt(asset.id) % aspectRatios.length];
@@ -222,8 +404,9 @@ export const Gallery: React.FC<GalleryProps> = ({
             return (
               <div
                 key={asset.id}
+                data-asset-id={asset.id}
                 className={`gallery__card ${isSelected ? 'gallery__card--selected' : ''}`}
-                onClick={() => onSelectAsset(asset)}
+                onClick={(e) => handleCardClick(e, asset)}
                 onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
                 draggable
                 onDragStart={(e) => handleDragStart(e, asset)}
@@ -246,19 +429,21 @@ export const Gallery: React.FC<GalleryProps> = ({
                       (e.target as HTMLImageElement).style.display = 'none';
                     }}
                   />
-                  <div style={{
-                    position: 'absolute',
-                    bottom: 8,
-                    left: 8,
-                    right: 8,
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 600,
-                    color: 'white',
-                    textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-                    opacity: 0.8,
-                  }}>
-                    {asset.title}
-                  </div>
+                  {showImageNames && (
+                    <div style={{
+                      position: 'absolute',
+                      bottom: 8,
+                      left: 8,
+                      right: 8,
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      color: 'white',
+                      textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                      opacity: 0.8,
+                    }}>
+                      {asset.title}
+                    </div>
+                  )}
                 </div>
 
                 <div className="gallery__card-overlay">
@@ -266,7 +451,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                     className="gallery-item__image-wrapper"
                     draggable
                     onDragStart={(e) => handleDragStart(e, asset)}
-                  >{asset.filename}</div>
+                  >{showImageNames ? asset.filename : ''}</div>
                   <div className="gallery__card-meta">{asset.width}×{asset.height} · {asset.size}</div>
                 </div>
 

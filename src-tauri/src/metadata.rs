@@ -154,3 +154,92 @@ pub fn remove_asset_from_collection(asset_id: String, collection_id: String, sta
     
     Ok(())
 }
+
+#[tauri::command]
+pub fn bulk_create_collections(raw_input: String, default_color: Option<String>, state: State<'_, AppState>) -> Result<Vec<Collection>, String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+
+    let color = default_color.unwrap_or_else(|| "#3b82f6".to_string());
+    let lines = raw_input.lines().collect::<Vec<&str>>();
+    let mut created = Vec::new();
+
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+
+        // Support hierarchy syntax: "Medieval > Cyberpunk"
+        let parts: Vec<&str> = trimmed.split('>').map(|s| s.trim()).collect();
+        let mut current_parent_id: Option<String> = None;
+
+        for part in parts {
+            if part.is_empty() { continue; }
+            let name = part.to_string();
+
+            // Check if collection already exists under current parent
+            let existing_id: Option<String> = match &current_parent_id {
+                Some(pid) => conn.query_row(
+                    "SELECT id FROM collections WHERE name = ?1 AND parent_id = ?2",
+                    [&name, pid],
+                    |row| row.get(0),
+                ).ok(),
+                None => conn.query_row(
+                    "SELECT id FROM collections WHERE name = ?1 AND parent_id IS NULL",
+                    [&name],
+                    |row| row.get(0),
+                ).ok(),
+            };
+
+            if let Some(id) = existing_id {
+                current_parent_id = Some(id);
+            } else {
+                let id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO collections (id, name, color, parent_id) VALUES (?1, ?2, ?3, ?4)",
+                    (&id, &name, &color, &current_parent_id),
+                ).map_err(|e| e.to_string())?;
+
+                let col = Collection { id: id.clone(), name, color: color.clone(), parent_id: current_parent_id.clone() };
+                created.push(col);
+                current_parent_id = Some(id);
+            }
+        }
+    }
+
+    Ok(created)
+}
+
+#[tauri::command]
+pub fn bulk_create_tags(raw_input: String, state: State<'_, AppState>) -> Result<Vec<Tag>, String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+
+    let items: Vec<&str> = raw_input.split(|c| c == '\n' || c == ',').map(|s| s.trim()).collect();
+    let mut created = Vec::new();
+
+    for item in items {
+        if item.is_empty() { continue; }
+        let name = item.to_string();
+
+        let tag_id: String = match conn.query_row(
+            "SELECT id FROM tags WHERE name = ?1",
+            [&name],
+            |row| row.get(0),
+        ) {
+            Ok(id) => id,
+            Err(_) => {
+                let new_id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO tags (id, name) VALUES (?1, ?2)",
+                    (&new_id, &name),
+                ).map_err(|e| e.to_string())?;
+                new_id
+            }
+        };
+
+        created.push(Tag { id: tag_id, name });
+    }
+
+    Ok(created)
+}
+

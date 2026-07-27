@@ -201,7 +201,12 @@ html, body {
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
   background: var(--bg-primary);
+  border-top: none;
+  border-left: none;
+  border-right: none;
   border-bottom: 1px solid var(--border-subtle);
+  outline: none;
+  margin-top: 0;
   -webkit-app-region: drag;
   position: relative;
   z-index: var(--z-titlebar);
@@ -284,7 +289,8 @@ html, body {
 .sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
-  background: var(--bg-primary);
+  background: var(--sidebar-bg, var(--bg-primary));
+  font-family: var(--sidebar-font, var(--font-family));
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
@@ -330,7 +336,7 @@ html, body {
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
-  color: var(--text-secondary);
+  color: var(--sidebar-text, var(--text-secondary));
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
   font-size: var(--font-size-sm);
