@@ -7,7 +7,7 @@ import {
 } from './Icons';
 
 // Types
-type ViewType = 'library' | 'boards' | 'graph' | 'search';
+export type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -130,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Quick access */}
         <div className="sidebar__section-title">Quick Access</div>
         {QUICK_ACCESS.map(item => (
-          <div key={item.id} className="sidebar__item">
+          <div key={item.id} className={`sidebar__item ${activeView === item.id ? 'sidebar__item--active' : ''}`} onClick={() => onViewChange(item.id as ViewType)}>
             <item.icon size={16} className="sidebar__item-icon" />
             <span className="sidebar__item-label">{item.label}</span>
             {item.count !== undefined && (

@@ -1,12 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { Titlebar } from './components/Titlebar';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
 import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { BoardCanvas } from './components/BoardCanvas';
-import { BoardNode } from './types/board';
 import { invoke } from '@tauri-apps/api/core';
 
 import { useLibrary } from './hooks/useLibrary';

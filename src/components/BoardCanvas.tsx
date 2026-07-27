@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as PIXI from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 import { v4 as uuidv4 } from 'uuid';
-import { BoardNode, Position } from '../types/board';
+import { BoardNode } from '../types/board';
 
 import { ToolType } from '../App';
 
@@ -40,10 +40,10 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
       screenHeight: containerRef.current.clientHeight,
       worldWidth: 10000,
       worldHeight: 10000,
-      events: app.renderer.events, // Pixi v7 event system
-    });
+      events: app.renderer.events as any, // Pixi v7 event system
+    } as any);
 
-    app.stage.addChild(viewport);
+    app.stage.addChild(viewport as any);
     viewportRef.current = viewport;
 
     // 3. Configure Viewport Interactions
@@ -83,7 +83,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
     if (!viewportRef.current) return;
     const viewport = viewportRef.current;
     
-    const dragPlugin = viewport.plugins.get('drag');
+    const dragPlugin = viewport.plugins.get('drag') as any;
     if (dragPlugin) {
        // If tool is pan, allow left click (mouseButtons: 'left') panning, otherwise only right click
        dragPlugin.options.mouseButtons = activeTool === 'pan' ? 'left' : 'right';
@@ -135,23 +135,20 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
 
         // Dragging Logic
         let dragging = false;
-        let dragData: PIXI.FederatedPointerEvent | null = null;
         let startPosition = { x: 0, y: 0 };
 
         sprite.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-          if (e.button === 0 && activeTool === 'select') { // Left click & select tool
-            e.stopPropagation(); // Prevent viewport drag
-            setSelectedNodeId(node.id);
-            dragging = true;
-            dragData = e;
-            startPosition = { x: sprite.x, y: sprite.y };
+           if (e.button === 0 && activeTool === 'select') { // Left click & select tool
+             e.stopPropagation(); // Prevent viewport drag
+             setSelectedNodeId(node.id);
+             dragging = true;
+             startPosition = { x: sprite.x, y: sprite.y };
             viewport.plugins.pause('drag');
           }
         });
 
         sprite.on('pointerup', () => {
           dragging = false;
-          dragData = null;
           viewport.plugins.resume('drag');
           
           // Emit updated node position
@@ -166,7 +163,6 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
 
         sprite.on('pointerupoutside', () => {
           dragging = false;
-          dragData = null;
           viewport.plugins.resume('drag');
         });
 
@@ -181,7 +177,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
           }
         });
 
-        viewport.addChild(sprite);
+        viewport.addChild(sprite as any);
       }
     });
 

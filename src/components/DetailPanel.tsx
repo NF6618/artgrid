@@ -36,8 +36,8 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
     );
   }
 
-  const generateGradient = (palette: string[]): string => {
-    if (palette.length < 2) return palette[0] || '#333';
+  const generateGradient = (palette?: string[]): string => {
+    if (!palette || palette.length < 2) return (palette && palette[0]) || '#333';
     const stops = palette.map((c, i) => `${c} ${(i / (palette.length - 1)) * 100}%`).join(', ');
     return `linear-gradient(135deg, ${stops})`;
   };
@@ -122,7 +122,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Color Palette</div>
           <div className="palette">
-            {asset.palette.map((color, i) => (
+            {(asset.palette || []).map((color, i) => (
               <div
                 key={i}
                 className="palette__swatch"
@@ -133,7 +133,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
             ))}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginTop: 'var(--space-1)' }}>
-            {asset.palette.map((color, i) => (
+            {(asset.palette || []).map((color, i) => (
               <span key={i} style={{
                 fontSize: '10px',
                 color: 'var(--text-muted)',
