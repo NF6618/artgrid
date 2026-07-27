@@ -9,6 +9,7 @@ use std::sync::Mutex;
 
 mod db;
 mod import;
+mod watcher;
 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
