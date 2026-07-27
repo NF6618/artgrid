@@ -63,9 +63,32 @@ const App: React.FC = () => {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    (window as any).__artgridOpenPreviewAsset = (asset: Asset) => setPreviewAsset(asset);
+  // Handle opening preview asset directly in dedicated desktop OS window
+  const handleOpenPreviewAsset = useCallback(async (asset: Asset) => {
+    try {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const label = `artgrid_viewer_${asset.id}_${Date.now()}`;
+      const popoutUrl = `${window.location.origin}${window.location.pathname}?previewAssetId=${asset.id}`;
+      new WebviewWindow(label, {
+        url: popoutUrl,
+        title: `ArtGrid Media Viewer — ${asset.title}`,
+        width: 1200,
+        height: 850,
+        decorations: true,
+        resizable: true,
+        shadow: true,
+        focus: true,
+        center: true,
+      });
+    } catch (e) {
+      console.warn("Falling back to inline preview modal:", e);
+      setPreviewAsset(asset);
+    }
   }, []);
+
+  useEffect(() => {
+    (window as any).__artgridOpenPreviewAsset = (asset: Asset) => handleOpenPreviewAsset(asset);
+  }, [handleOpenPreviewAsset]);
 
   // Auto open asset preview if launched in standalone popout window
   useEffect(() => {
@@ -388,7 +411,7 @@ const App: React.FC = () => {
                 assets={filteredAssets}
                 selectedAsset={selectedAsset}
                 onSelectAsset={handleSelectAsset}
-                onPreviewAsset={setPreviewAsset}
+                onPreviewAsset={handleOpenPreviewAsset}
                 onToggleFavorite={handleToggleFavorite}
                 onImport={importFiles}
                 viewMode={viewMode}

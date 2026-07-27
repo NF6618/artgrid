@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useMetadataStore } from '../stores/useMetadataStore';
 import { Asset } from './Gallery';
-import { IconClose, IconPlus, IconArchive, IconTrash } from './Icons';
+import { IconClose, IconPlus, IconArchive, IconTrash, IconMaximize } from './Icons';
 import { invoke } from '@tauri-apps/api/core';
 
 interface DetailPanelProps {
@@ -151,6 +151,13 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button 
             className="toolbar__btn" 
+            title="Pop-out Media Viewer Window" 
+            onClick={() => (window as any).__artgridOpenPreviewAsset?.(asset)}
+          >
+            <IconMaximize size={14} />
+          </button>
+          <button 
+            className="toolbar__btn" 
             title={asset.archived ? "Unarchive" : "Archive Asset"} 
             onClick={handleToggleArchive}
             style={{ color: asset.archived ? 'var(--accent-primary)' : 'inherit' }}
@@ -172,7 +179,12 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
       </div>
 
       {/* Preview */}
-      <div className="detail-panel__preview">
+      <div 
+        className="detail-panel__preview" 
+        onClick={() => (window as any).__artgridOpenPreviewAsset?.(asset)}
+        style={{ cursor: 'pointer' }}
+        title="Click to Open Standalone Media Viewer Window"
+      >
         <div
           style={{
             width: '100%',
