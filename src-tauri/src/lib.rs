@@ -5,6 +5,10 @@ fn greet(name: &str) -> String {
 }
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
+use std::sync::Mutex;
+
+mod db;
+mod import;
 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,6 +19,9 @@ pub fn run() {
 
     println!("ARTGRID: Starting app initialization...");
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_log::Builder::new().targets([
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::LogDir { file_name: Some("artgrid.log".into()) }),
@@ -22,9 +29,21 @@ pub fn run() {
         ]).level(log::LevelFilter::Trace).build())
         .setup(|app| {
             println!("ARTGRID: Setup hook running...");
+            
+            // Manage AppState (Vault not opened yet)
+            app.manage(import::AppState {
+                db: Mutex::new(None),
+                vault_path: Mutex::new(None),
+            });
+            
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            import::open_vault,
+            import::get_assets,
+            import::import_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

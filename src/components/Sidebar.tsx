@@ -14,6 +14,14 @@ interface SidebarProps {
   onViewChange: (view: ViewType) => void;
   activeCollection: string | null;
   onCollectionChange: (id: string | null) => void;
+  onImport?: () => void;
+  onSettings?: () => void;
+  stats: {
+    library: number;
+    boards: number;
+    favorites: number;
+    untagged: number;
+  };
 }
 
 interface Collection {
@@ -24,71 +32,10 @@ interface Collection {
   children?: Collection[];
 }
 
-// Demo collections data
-const COLLECTIONS: Collection[] = [
-  {
-    id: 'characters',
-    name: 'Character Design',
-    color: '#7c6bf0',
-    count: 128,
-    children: [
-      { id: 'char-fantasy', name: 'Fantasy', color: '#4ecdc4', count: 45 },
-      { id: 'char-scifi', name: 'Sci-Fi', color: '#6b9df0', count: 38 },
-      { id: 'char-realistic', name: 'Realistic', color: '#f0916b', count: 45 },
-    ],
-  },
-  {
-    id: 'environments',
-    name: 'Environments',
-    color: '#4ecdc4',
-    count: 256,
-    children: [
-      { id: 'env-interior', name: 'Interiors', color: '#f0c16b', count: 89 },
-      { id: 'env-landscape', name: 'Landscapes', color: '#4ecdc4', count: 102 },
-      { id: 'env-urban', name: 'Urban', color: '#6b9df0', count: 65 },
-    ],
-  },
-  {
-    id: 'props',
-    name: 'Props & Objects',
-    color: '#f0916b',
-    count: 87,
-  },
-  {
-    id: 'lighting',
-    name: 'Lighting Reference',
-    color: '#f0c16b',
-    count: 64,
-  },
-  {
-    id: 'color-studies',
-    name: 'Color Studies',
-    color: '#f06b8e',
-    count: 42,
-  },
-  {
-    id: 'anatomy',
-    name: 'Anatomy',
-    color: '#6b9df0',
-    count: 193,
-  },
-];
+// Demo collections data removed
+const COLLECTIONS: Collection[] = [];
 
-// Navigation items
-const NAV_ITEMS = [
-  { id: 'library' as ViewType, label: 'Library', icon: IconImage, count: 1247 },
-  { id: 'boards' as ViewType, label: 'Boards', icon: IconBoard, count: 8 },
-  { id: 'graph' as ViewType, label: 'Graph', icon: IconGraph },
-  { id: 'search' as ViewType, label: 'Search', icon: IconSearch },
-];
-
-const QUICK_ACCESS = [
-  { id: 'favorites', label: 'Favorites', icon: IconStar, count: 34 },
-  { id: 'recent', label: 'Recent', icon: IconClock, count: 52 },
-  { id: 'untagged', label: 'Untagged', icon: IconTag, count: 89 },
-  { id: 'archive', label: 'Archive', icon: IconArchive },
-  { id: 'trash', label: 'Trash', icon: IconTrash, count: 3 },
-];
+// Removed static NAV_ITEMS and QUICK_ACCESS to move them inside component
 
 // Collection tree item component
 const CollectionTreeItem: React.FC<{
@@ -141,7 +88,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onViewChange,
   activeCollection,
   onCollectionChange,
+  onImport,
+  onSettings,
+  stats
 }) => {
+  const NAV_ITEMS = [
+    { id: 'library' as ViewType, label: 'Library', icon: IconImage, count: stats.library },
+    { id: 'boards' as ViewType, label: 'Boards', icon: IconBoard, count: stats.boards },
+    { id: 'graph' as ViewType, label: 'Graph', icon: IconGraph },
+    { id: 'search' as ViewType, label: 'Search', icon: IconSearch },
+  ];
+
+  const QUICK_ACCESS = [
+    { id: 'favorites', label: 'Favorites', icon: IconStar, count: stats.favorites },
+    { id: 'recent', label: 'Recent', icon: IconClock, count: stats.library },
+    { id: 'untagged', label: 'Untagged', icon: IconTag, count: stats.untagged },
+    { id: 'archive', label: 'Archive', icon: IconArchive },
+    { id: 'trash', label: 'Trash', icon: IconTrash, count: 0 },
+  ];
+
   return (
     <div className="sidebar">
       {/* Navigation */}
@@ -200,11 +165,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer */}
       <div className="sidebar__footer">
-        <div className="sidebar__item">
+        <div className="sidebar__item" onClick={onImport} style={{ cursor: 'pointer' }}>
           <IconImport size={16} className="sidebar__item-icon" />
           <span className="sidebar__item-label">Import</span>
         </div>
-        <div className="sidebar__item">
+        <div className="sidebar__item" onClick={onSettings} style={{ cursor: 'pointer' }}>
           <IconSettings size={16} className="sidebar__item-icon" />
           <span className="sidebar__item-label">Settings</span>
         </div>

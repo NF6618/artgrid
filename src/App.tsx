@@ -2,12 +2,18 @@ import React, { useState, useCallback } from 'react';
 import { Titlebar } from './components/Titlebar';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
-import { Gallery, DEMO_IMAGES, Asset } from './components/Gallery';
+import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
+import { BoardCanvas } from './components/BoardCanvas';
+import { BoardNode } from './types/board';
+
+import { useLibrary } from './hooks/useLibrary';
+import { SettingsModal } from './components/SettingsModal';
 
 type ViewType = 'library' | 'boards' | 'graph' | 'search';
 type ViewMode = 'grid' | 'list' | 'board';
+export type ToolType = 'select' | 'pan';
 
 const App: React.FC = () => {
   // Navigation state
@@ -17,11 +23,18 @@ const App: React.FC = () => {
   // View state
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [showDetailPanel, setShowDetailPanel] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
 
+  // Library state via Tauri
+  const { assets, vaultPath, openVault, importFiles, setAssets } = useLibrary();
+  
   // Data state
-  const [assets, setAssets] = useState<Asset[]>(DEMO_IMAGES);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Board state
+  const [boardNodes, setBoardNodes] = useState<BoardNode[]>([]);
+  const [activeTool, setActiveTool] = useState<ToolType>('select');
 
   // Handlers
   const handleSelectAsset = useCallback((asset: Asset) => {
@@ -78,6 +91,14 @@ const App: React.FC = () => {
           onViewChange={setActiveView}
           activeCollection={activeCollection}
           onCollectionChange={setActiveCollection}
+          onImport={importFiles}
+          onSettings={() => setShowSettings(true)}
+          stats={{
+            library: assets.length,
+            boards: 0, // Mocked for now until Phase 4 (Boards db)
+            favorites: assets.filter(a => a.favorite).length,
+            untagged: assets.filter(a => !a.tags || a.tags.length === 0).length,
+          }}
         />
 
         {/* Content Area */}
@@ -96,53 +117,55 @@ const App: React.FC = () => {
 
           {/* Main content + detail panel */}
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            {/* Gallery / Board / Graph view */}
-            {activeView === 'library' || activeView === 'search' ? (
+            {/* Vault empty state */}
+            {!vaultPath ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
+                <div className="empty-state">
+                  <h2 className="empty-state__title">Welcome to ArtGrid</h2>
+                  <p className="empty-state__description">
+                    Open or create a Vault folder to store your library.
+                  </p>
+                  <div className="empty-state__action">
+                    <button className="btn btn--primary" onClick={openVault}>
+                      Select Vault Folder
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : activeView === 'library' || activeView === 'search' ? (
               <Gallery
                 assets={filteredAssets}
                 selectedAsset={selectedAsset}
                 onSelectAsset={handleSelectAsset}
                 onToggleFavorite={handleToggleFavorite}
+                onImport={importFiles}
               />
             ) : activeView === 'boards' ? (
               <div className="canvas-container">
                 <div className="canvas-container__grid" />
-                {/* Canvas placeholder — will be replaced with PixiJS */}
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <div className="empty-state">
-                    <svg width={64} height={64} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round" className="empty-state__icon">
-                      <rect x="2" y="3" width="20" height="18" rx="2" />
-                      <rect x="4" y="5" width="6" height="5" rx="1" />
-                      <rect x="14" y="5" width="6" height="4" rx="1" />
-                      <rect x="4" y="12" width="5" height="7" rx="1" />
-                      <rect x="12" y="11" width="8" height="3" rx="1" />
-                    </svg>
-                    <h2 className="empty-state__title">Mood Boards</h2>
-                    <p className="empty-state__description">
-                      Create infinite canvas boards for your reference compositions. Drag images from your library onto the canvas.
-                    </p>
-                    <div className="empty-state__action">
-                      <button className="btn btn--primary">
-                        Create New Board
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                {/* Canvas Implementation */}
+                <BoardCanvas 
+                  nodes={boardNodes}
+                  onNodesChange={setBoardNodes}
+                  activeTool={activeTool}
+                />
 
                 {/* Canvas floating toolbar */}
                 <div className="canvas-toolbar">
-                  <button className="toolbar__btn toolbar__btn--active" title="Select">
+                  <button 
+                    className={`toolbar__btn ${activeTool === 'select' ? 'toolbar__btn--active' : ''}`} 
+                    title="Select"
+                    onClick={() => setActiveTool('select')}
+                  >
                     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                       <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
                     </svg>
                   </button>
-                  <button className="toolbar__btn" title="Hand (Pan)">
+                  <button 
+                    className={`toolbar__btn ${activeTool === 'pan' ? 'toolbar__btn--active' : ''}`} 
+                    title="Hand (Pan)"
+                    onClick={() => setActiveTool('pan')}
+                  >
                     <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                       <path d="M18 11V6a2 2 0 0 0-4 0v5m0 0V4a2 2 0 0 0-4 0v7m0 0V6a2 2 0 0 0-4 0v7m0-2a2 2 0 0 0-4 0v5a8 8 0 0 0 16 0v-2a2 2 0 0 0-4 0" />
                     </svg>
@@ -215,6 +238,17 @@ const App: React.FC = () => {
         itemCount={filteredAssets.length}
         selectedCount={selectedAsset ? 1 : 0}
         viewMode={viewMode}
+      />
+      
+      {/* Settings Modal */}
+      <SettingsModal 
+        visible={showSettings} 
+        onClose={() => setShowSettings(false)} 
+        vaultPath={vaultPath}
+        onChangeVault={() => {
+          setShowSettings(false);
+          openVault();
+        }}
       />
     </>
   );
