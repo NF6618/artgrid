@@ -43,19 +43,24 @@ const App: React.FC = () => {
   }, [loadSettings]);
 
   // Library state via Tauri
-  const { assets, vaultPath, openVault, loadVault, importFiles, setAssets, loadAssets } = useLibrary();
+  const { assets, vaultPath, setVaultPath, openVault, loadVault, importFiles, setAssets, loadAssets } = useLibrary();
 
   // Auto load saved vault on startup
   React.useEffect(() => {
     if (isLoaded && savedVaultPath && !vaultPath) {
-      loadVault(savedVaultPath);
-      
       const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get('standaloneTab') !== 'true') {
+      const isStandalone = urlParams.get('standaloneTab') === 'true' || !!urlParams.get('previewAssetId');
+
+      if (isStandalone) {
+        // Vault is already opened by main window, skip heavy backend init
+        setVaultPath(savedVaultPath);
+        // loadStandaloneAssets handles fetching for previewAssetId
+      } else {
+        loadVault(savedVaultPath);
         updateTabContext('default', { type: defaultView as TabType, title: defaultView.charAt(0).toUpperCase() + defaultView.slice(1) });
       }
     }
-  }, [isLoaded, savedVaultPath, vaultPath, loadVault, defaultView, updateTabContext]);
+  }, [isLoaded, savedVaultPath, vaultPath, loadVault, setVaultPath, defaultView, updateTabContext]);
 
   // Sync new vault selection back to settings
   React.useEffect(() => {

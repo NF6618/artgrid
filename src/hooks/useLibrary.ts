@@ -111,6 +111,7 @@ export function useLibrary() {
     loadVault,
     loadAssets,
     importFiles,
-    setAssets // For optimistic UI updates like toggling favorites
+    setAssets, // For optimistic UI updates like toggling favorites
+    setVaultPath
   };
 }
