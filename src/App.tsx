@@ -304,22 +304,27 @@ const App: React.FC = () => {
                 <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
                   {/* Left Side: Rich Media Drawer for Board */}
                   <div style={{ 
-                    width: isMediaDrawerCollapsed ? 44 : 280, 
-                    transition: 'width 0.2s ease',
+                    width: isMediaDrawerCollapsed ? 48 : 280, 
+                    transition: 'width 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
                     borderRight: '1px solid var(--border-subtle)', 
                     display: 'flex', 
                     flexDirection: 'column',
-                    background: 'var(--bg-surface)',
+                    background: 'var(--bg-secondary)',
                     position: 'relative',
-                    zIndex: 20
+                    zIndex: 20,
+                    fontFamily: 'var(--font-family)'
                   }}>
-                    <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      {!isMediaDrawerCollapsed && <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>Media Drawer</h3>}
+                    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      {!isMediaDrawerCollapsed && (
+                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Media Library
+                        </span>
+                      )}
                       <button 
                         className="toolbar__btn" 
                         onClick={() => setIsMediaDrawerCollapsed(!isMediaDrawerCollapsed)}
                         title={isMediaDrawerCollapsed ? "Expand Media Sidebar" : "Collapse Media Sidebar"}
-                        style={{ padding: '4px 6px', margin: isMediaDrawerCollapsed ? '0 auto' : '0' }}
+                        style={{ padding: '4px 8px', margin: isMediaDrawerCollapsed ? '0 auto' : '0' }}
                       >
                         {isMediaDrawerCollapsed ? '▶' : '◀'}
                       </button>
@@ -328,18 +333,37 @@ const App: React.FC = () => {
                     {!isMediaDrawerCollapsed && (
                       <>
                         {/* Filtering Controls */}
-                        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6, borderBottom: '1px solid var(--border-subtle)' }}>
+                        <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
                           <input 
-                            placeholder="Search media..."
+                            placeholder="Search library..."
                             value={boardSearchQuery}
                             onChange={e => setBoardSearchQuery(e.target.value)}
-                            style={{ background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '4px 8px', fontSize: '0.75rem' }}
+                            style={{ 
+                              background: 'var(--bg-secondary)', 
+                              border: '1px solid var(--border-subtle)', 
+                              color: 'var(--text-primary)', 
+                              borderRadius: 'var(--radius-sm)', 
+                              padding: '6px 10px', 
+                              fontSize: 'var(--font-size-xs)',
+                              outline: 'none',
+                              fontFamily: 'var(--font-family)'
+                            }}
                           />
-                          <div style={{ display: 'flex', gap: 4 }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
                             <select 
                               value={boardCategoryFilter}
                               onChange={e => setBoardCategoryFilter(e.target.value)}
-                              style={{ flex: 1, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '3px', fontSize: '0.7rem' }}
+                              style={{ 
+                                flex: 1, 
+                                background: 'var(--bg-secondary)', 
+                                border: '1px solid var(--border-subtle)', 
+                                color: 'var(--text-primary)', 
+                                borderRadius: 'var(--radius-sm)', 
+                                padding: '4px 6px', 
+                                fontSize: 'var(--font-size-xs)',
+                                outline: 'none',
+                                fontFamily: 'var(--font-family)'
+                              }}
                             >
                               <option value="all">All Categories</option>
                               {collections.map((c: any) => (
@@ -349,17 +373,27 @@ const App: React.FC = () => {
                             <select 
                               value={boardSortBy}
                               onChange={e => setBoardSortBy(e.target.value)}
-                              style={{ flex: 1, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '3px', fontSize: '0.7rem' }}
+                              style={{ 
+                                flex: 1, 
+                                background: 'var(--bg-secondary)', 
+                                border: '1px solid var(--border-subtle)', 
+                                color: 'var(--text-primary)', 
+                                borderRadius: 'var(--radius-sm)', 
+                                padding: '4px 6px', 
+                                fontSize: 'var(--font-size-xs)',
+                                outline: 'none',
+                                fontFamily: 'var(--font-family)'
+                              }}
                             >
-                              <option value="date">Sort: Date</option>
-                              <option value="title">Sort: Title</option>
-                              <option value="size">Sort: Size</option>
+                              <option value="date">Date</option>
+                              <option value="title">Title</option>
+                              <option value="size">Size</option>
                             </select>
                           </div>
                         </div>
 
                         {/* Asset Grid */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignContent: 'start' }}>
+                        <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignContent: 'start' }}>
                           {boardFilteredAssets.map(asset => (
                             <div 
                               key={asset.id} 
@@ -375,11 +409,33 @@ const App: React.FC = () => {
                                 e.dataTransfer.setData('application/json', JSON.stringify(dataObj));
                                 e.dataTransfer.setData('text/plain', asset.url);
                               }}
-                              style={{ aspectRatio: '1', background: 'var(--bg-base)', borderRadius: 4, overflow: 'hidden', cursor: 'grab', position: 'relative' }}
+                              style={{ 
+                                aspectRatio: '1', 
+                                background: 'var(--bg-base)', 
+                                borderRadius: 'var(--radius-md)', 
+                                border: '1px solid var(--border-subtle)',
+                                overflow: 'hidden', 
+                                cursor: 'grab', 
+                                position: 'relative',
+                                transition: 'all 0.15s ease'
+                              }}
                               title={`${asset.title} - Drag onto board`}
                             >
                               <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />
-                              <div style={{ position: 'absolute', bottom: 0, inset: 'auto 0 0 0', background: 'rgba(0,0,0,0.6)', padding: '2px 4px', fontSize: '9px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'white' }}>
+                              <div style={{ 
+                                position: 'absolute', 
+                                bottom: 0, 
+                                inset: 'auto 0 0 0', 
+                                background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)', 
+                                padding: '6px 4px 3px 4px', 
+                                fontSize: '10px', 
+                                fontWeight: 500,
+                                whiteSpace: 'nowrap', 
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis', 
+                                color: 'white',
+                                fontFamily: 'var(--font-family)'
+                              }}>
                                 {asset.title}
                               </div>
                             </div>
