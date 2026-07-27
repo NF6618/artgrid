@@ -464,6 +464,9 @@ const App: React.FC = () => {
           onTagChange={handleNavTagChange}
           onImport={() => setShowImportVaultModal(true)}
           onSettings={() => setShowSettings(true)}
+          currentVaultPath={vaultPath}
+          onSelectVault={(selectedPath) => loadVault(selectedPath)}
+          onOpenVaultModal={() => setShowVaultInitModal(true)}
           stats={{
             library: assets.length,
             boards: boards.length,

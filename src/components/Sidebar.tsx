@@ -7,6 +7,8 @@ import {
   IconPlus, IconImport
 } from './Icons';
 
+import { useSettingsStore } from '../stores/useSettingsStore';
+
 // Types
 export type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 
@@ -19,6 +21,9 @@ interface SidebarProps {
   onTagChange?: (id: string | null) => void;
   onImport?: () => void;
   onSettings?: () => void;
+  currentVaultPath?: string | null;
+  onSelectVault?: (vaultPath: string) => void;
+  onOpenVaultModal?: () => void;
   stats: {
     library: number;
     boards: number;
@@ -84,15 +89,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTagChange,
   onImport,
   onSettings,
+  currentVaultPath,
+  onSelectVault,
+  onOpenVaultModal,
   stats
 }) => {
   const { collections, tags, createCollection, loadMetadata } = useMetadataStore();
+  const { vaults } = useSettingsStore();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isVaultDropdownOpen, setIsVaultDropdownOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newColName, setNewColName] = useState('');
   const [newColColor, setNewColColor] = useState('#3b82f6');
   const [newColParent, setNewColParent] = useState<string | undefined>(undefined);
+
+  const activeVaultName = currentVaultPath ? (currentVaultPath.split(/[\\/]/).pop() || 'Vault') : 'Select Vault';
 
   const NAV_ITEMS = [
     { id: 'library' as ViewType, label: 'Library', icon: IconImage, count: stats.library },
@@ -141,6 +153,107 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isCollapsed ? '▶' : '◀'}
         </button>
       </div>
+
+      {/* Vault Selector Dropdown Menu */}
+      {!isCollapsed && (
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', position: 'relative' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4, letterSpacing: '0.05em' }}>
+            Current Vault
+          </div>
+          <button
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 10px',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 6,
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            onClick={() => setIsVaultDropdownOpen(!isVaultDropdownOpen)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+              <span style={{ fontSize: '14px' }}>📦</span>
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {activeVaultName}
+              </span>
+            </div>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{isVaultDropdownOpen ? '▲' : '▼'}</span>
+          </button>
+
+          {isVaultDropdownOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 12,
+                right: 12,
+                marginTop: 4,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 8,
+                boxShadow: '0 10px 30px rgba(0,0,0,0.7)',
+                zIndex: 500,
+                padding: 4,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              {vaults && vaults.length > 0 ? vaults.map(v => (
+                <div
+                  key={v.id}
+                  onClick={() => {
+                    setIsVaultDropdownOpen(false);
+                    if (v.path !== currentVaultPath && onSelectVault) {
+                      onSelectVault(v.path);
+                    }
+                  }}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    background: v.path === currentVaultPath ? 'var(--bg-tertiary)' : 'transparent',
+                    color: v.path === currentVaultPath ? 'var(--accent-primary)' : 'var(--text-primary)',
+                    fontWeight: v.path === currentVaultPath ? 600 : 400,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {v.name}
+                  </span>
+                  {v.path === currentVaultPath && <span style={{ fontSize: '10px' }}>✓</span>}
+                </div>
+              )) : (
+                <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--text-muted)' }}>No saved vaults</div>
+              )}
+
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '11px', gap: 6, width: '100%' }}
+                onClick={() => {
+                  setIsVaultDropdownOpen(false);
+                  onOpenVaultModal?.();
+                }}
+              >
+                <IconPlus size={12} /> Open / Create Vault...
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="sidebar__nav">

@@ -58,7 +58,7 @@ export function useLibrary() {
       }
       setVaultPath(path);
       await loadAssets();
-      useBoardStore.getState().fetchBoards();
+      useBoardStore.getState().loadBoards();
       useMetadataStore.getState().loadMetadata();
     } catch (err) {
       console.error('Failed to load vault:', err);
