@@ -414,6 +414,98 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }
   };
 
+  const handleOcrExtraction = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!pdfCanvasRef.current) return;
+    
+    setIsOcrProcessing(true);
+    let targetCanvas = pdfCanvasRef.current;
+    
+    if (isCropToolActive && cropBox && Math.abs(cropBox.endX - cropBox.startX) > 10) {
+      const rect = targetCanvas.getBoundingClientRect();
+      const scaleX = targetCanvas.width / rect.width;
+      const scaleY = targetCanvas.height / rect.height;
+
+      const x = Math.min(cropBox.startX, cropBox.endX) * scaleX;
+      const y = Math.min(cropBox.startY, cropBox.endY) * scaleY;
+      const w = Math.abs(cropBox.endX - cropBox.startX) * scaleX;
+      const h = Math.abs(cropBox.endY - cropBox.startY) * scaleY;
+      
+      const destCanvas = document.createElement('canvas');
+      destCanvas.width = w;
+      destCanvas.height = h;
+      const ctx = destCanvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(targetCanvas, x, y, w, h, 0, 0, w, h);
+        targetCanvas = destCanvas;
+      }
+    }
+    
+    const dataUrl = targetCanvas.toDataURL('image/png');
+    
+    try {
+      const { createWorker } = await import('tesseract.js');
+      const worker = await createWorker('eng');
+      const ret = await worker.recognize(dataUrl);
+      const text = ret.data.text;
+      await worker.terminate();
+      
+      if (!text || !text.trim()) {
+        alert("No text could be recognized.");
+      } else {
+        await invoke('save_text_asset', {
+          title: `OCR_${asset?.title}_P${pdfPageNum}`,
+          textContent: text,
+        });
+        alert(`OCR successful! Extracted text saved to library.`);
+        if (onAssetsUpdated) onAssetsUpdated();
+        setCropBox(null);
+        setIsCropToolActive(false);
+      }
+    } catch (err) {
+      console.error("OCR Failed:", err);
+      alert("OCR Processing failed.");
+    } finally {
+      setIsOcrProcessing(false);
+    }
+  }, [pdfPageNum, asset?.title, isCropToolActive, cropBox, onAssetsUpdated]);
+
+  const handleSearchPdf = useCallback(async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim() || !pdfDoc) return;
+    setIsSearching(true);
+    setSearchResults([]);
+    
+    const results: {page: number, text: string}[] = [];
+    const query = searchQuery.toLowerCase();
+    
+    try {
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const textObj = await page.getTextContent();
+        const text = textObj.items.map((item: any) => item.str).join(' ');
+        if (text.toLowerCase().includes(query)) {
+          results.push({ page: i, text: text.substring(0, 50) + "..." });
+        }
+      }
+      setSearchResults(results);
+      if (results.length === 0) {
+        alert("No matches found.");
+      } else {
+        if (viewMode === 'flipbook') {
+          handlePageTurn(results[0].page);
+        } else {
+           // Scroll mode, jump to page not implemented here but user can scroll
+        }
+      }
+    } catch(err) {
+      console.error("Search error", err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [searchQuery, pdfDoc, viewMode]);
+
   // Provide toolbar controls to parent via setViewerControls
   useEffect(() => {
     if (setViewerControls) {
