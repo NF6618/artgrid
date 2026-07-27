@@ -98,14 +98,14 @@ export const IconPlus: React.FC<IconProps> = ({ size = 16, className, strokeWidt
   </svg>
 );
 
-export const IconChevronRight: React.FC<IconProps> = ({ size = 16, className, strokeWidth = 1.5 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+export const IconChevronRight: React.FC<IconProps> = ({ size = 16, className, style, strokeWidth = 1.5 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
     <polyline points="9 18 15 12 9 6" />
   </svg>
 );
 
-export const IconChevronDown: React.FC<IconProps> = ({ size = 16, className, strokeWidth = 1.5 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+export const IconChevronDown: React.FC<IconProps> = ({ size = 16, className, style, strokeWidth = 1.5 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
     <polyline points="6 9 12 15 18 9" />
   </svg>
 );
