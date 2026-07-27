@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import * as pdfjsLib from 'pdfjs-dist';
 import { IconColumns, IconType, IconScissors, IconImage, IconCamera } from '../Icons';
@@ -180,7 +180,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
   }, [pdfPageNum, pdfTotalPages, isFlipping]);
 
   // High-Fidelity Native PDF Embedded Image Extractor
-  const handleExtractNativePdfImages = async () => {
+  const handleExtractNativePdfImages = useCallback(async () => {
     if (!pdfDoc) return;
     try {
       const page = await pdfDoc.getPage(pdfPageNum);
@@ -253,14 +253,14 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
       console.error("Failed to extract native PDF image:", err);
       alert("Failed to extract native image asset.");
     }
-  };
+  }, [pdfDoc, pdfPageNum, asset?.title, onAssetsUpdated]);
 
-  const handleSnapshotPdfPage = async () => {
+  const handleSnapshotPdfPage = useCallback(async () => {
     if (!pdfCanvasRef.current) return;
     const dataUrl = pdfCanvasRef.current.toDataURL('image/png');
     try {
       await invoke('save_base64_image_asset', {
-        title: `${asset.title} - Page ${pdfPageNum}`,
+        title: `${asset?.title} - Page ${pdfPageNum}`,
         base64Data: dataUrl,
       });
       alert(`PDF Page ${pdfPageNum} snapshot saved as a new asset in your library!`);
@@ -268,13 +268,13 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     } catch (err) {
       console.error("Failed to snapshot PDF page:", err);
     }
-  };
+  }, [pdfPageNum, asset?.title, onAssetsUpdated]);
 
-  const handleSaveExtractedTextAsAsset = async () => {
+  const handleSaveExtractedTextAsAsset = useCallback(async () => {
     if (!pdfExtractedText) return;
     try {
       await invoke('save_text_asset', {
-        title: `Text_${asset.title}_Page_${pdfPageNum}`,
+        title: `Text_${asset?.title}_Page_${pdfPageNum}`,
         textContent: pdfExtractedText,
       });
       alert(`Extracted text from Page ${pdfPageNum} saved as a new text asset in library!`);
@@ -282,7 +282,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     } catch (err) {
       console.error("Failed to save extracted text asset:", err);
     }
-  };
+  }, [pdfExtractedText, pdfPageNum, asset?.title, onAssetsUpdated]);
 
   const handlePdfCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isCropToolActive) return;

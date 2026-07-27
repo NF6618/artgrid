@@ -32,14 +32,22 @@ class TelemetryLogger {
     window.fetch = async (...args) => {
       const startTime = performance.now();
       const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url || 'URL';
+      
+      // Do not log our own telemetry calls to prevent spam and infinite loops
+      const isTelemetry = url.includes('ipc.localhost/log_telemetry');
+
       try {
         const response = await originalFetch.apply(window, args);
         const duration = Math.round(performance.now() - startTime);
-        this.sendNetworkLog(`FETCH ${response.status} [${duration}ms] -> ${url}`);
+        if (!isTelemetry) {
+          this.sendNetworkLog(`FETCH ${response.status} [${duration}ms] -> ${url}`);
+        }
         return response;
       } catch (err) {
         const duration = Math.round(performance.now() - startTime);
-        this.sendNetworkLog(`FETCH ERROR [${duration}ms] -> ${url} (${err})`);
+        if (!isTelemetry) {
+          this.sendNetworkLog(`FETCH ERROR [${duration}ms] -> ${url} (${err})`);
+        }
         throw err;
       }
     };
