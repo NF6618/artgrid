@@ -9,6 +9,7 @@ import {
   IconSquare, 
   IconArrowUpRight, 
   IconPencil, 
+  IconEraser,
   IconRotateCcw, 
   IconRotateCw 
 } from '../../../components/Icons';
@@ -43,6 +44,7 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
     { type: 'shape', label: 'Rectangle Shape', icon: <IconSquare size={16} />, shortcut: 'R' },
     { type: 'arrow', label: 'Arrow / Connector', icon: <IconArrowUpRight size={16} />, shortcut: 'A' },
     { type: 'pen', label: 'Sketch / Pen Tool', icon: <IconPencil size={16} />, shortcut: 'P' },
+    { type: 'eraser', label: 'Eraser Tool', icon: <IconEraser size={16} />, shortcut: 'E' },
   ];
 
   return (

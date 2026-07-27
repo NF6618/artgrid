@@ -18,13 +18,13 @@ import { FileViewerModal } from './components/FileViewerModal';
 import { ImportVaultModal } from './components/ImportVaultModal';
 import { BoardsGallery } from './components/BoardsGallery';
 import { TabBar } from './components/TabBar';
-import { useTabStore, TabType, AppTab } from './stores/useTabStore';
+import { useTabStore, TabType } from './stores/useTabStore';
 
 type ViewMode = 'grid' | 'list' | 'board';
 
 const App: React.FC = () => {
   // Tab state
-  const { tabs, activeTabId, updateTabContext, addTab, setActiveTab, closeTab } = useTabStore();
+  const { tabs, activeTabId, updateTabContext, addTab, setActiveTab } = useTabStore();
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
   const activeView = activeTab.type;
   const activeCollection = activeTab.collectionId || null;
@@ -77,33 +77,9 @@ const App: React.FC = () => {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Handle opening preview asset directly in dedicated desktop OS window
-  const handleOpenPreviewAsset = useCallback(async (asset: Asset) => {
-    try {
-      await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
-    } catch (e) {
-      console.warn("Rust open_standalone_window fallback to JS WebviewWindow:", e);
-      try {
-        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-        const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const label = `viewer_${sanitizedId}_${Date.now()}`;
-        const popoutUrl = `${window.location.origin}${window.location.pathname}?previewAssetId=${encodeURIComponent(asset.id)}`;
-        
-        new WebviewWindow(label, {
-          url: popoutUrl,
-          title: `ArtGrid Media Viewer — ${asset.title}`,
-          width: 1200,
-          height: 850,
-          decorations: true,
-          resizable: true,
-          shadow: true,
-          focus: true,
-          center: true,
-        });
-      } catch (err) {
-        setPreviewAsset(asset);
-      }
-    }
+  // Handle opening preview asset directly in in-app media viewer
+  const handleOpenPreviewAsset = useCallback((asset: Asset) => {
+    setPreviewAsset(asset);
   }, []);
 
   useEffect(() => {
@@ -380,9 +356,6 @@ const App: React.FC = () => {
     updateTabContext(activeTabId, { tag: tagName, collectionId: null, boardId: null });
   };
 
-  const handleGoBack = () => {};
-  const handleGoForward = () => {};
-
   // Import Target Vault Modal state
   const [showImportVaultModal, setShowImportVaultModal] = useState(false);
 
@@ -458,16 +431,6 @@ const App: React.FC = () => {
     );
   }
 
-  const handlePopOutTab = async (tab: AppTab) => {
-    try {
-      const query = `standaloneTab=true&tabType=${tab.type}&tabId=${tab.id}&boardId=${tab.boardId || ''}&collectionId=${tab.collectionId || ''}&tag=${tab.tag || ''}`;
-      await invoke('spawn_tab_window', { query, title: tab.title });
-      closeTab(tab.id);
-    } catch (err) {
-      console.error("Failed to pop out tab:", err);
-    }
-  };
-
   return (
     <>
       <div className={`app-layout ${compactMode ? 'app-layout--compact' : ''}`}>
@@ -494,7 +457,7 @@ const App: React.FC = () => {
       {/* Content Area */}
       <div className="content-area">
         {/* TabBar - Hide in standalone tab mode */}
-        {!isStandaloneTab && <TabBar onPopOutTab={handlePopOutTab} />}
+        {!isStandaloneTab && <TabBar />}
         
         {/* Toolbar */}
         <Toolbar
@@ -524,7 +487,7 @@ const App: React.FC = () => {
               setCurrentFolderId(currentFolder?.parent_id || null);
             }
           }}
-          onGoForward={handleGoForward}
+          onGoForward={() => {}}
         />
 
           {/* Main content + detail panel */}

@@ -20,7 +20,7 @@ impl AiPipeline {
         let (tx, mut rx) = mpsc::channel::<AiTask>(100);
         
         let app = app_handle.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             while let Some(task) = rx.recv().await {
                 println!("ARTGRID AI: Processing task: {:?}", task);
                 
@@ -119,7 +119,7 @@ impl AiPipeline {
 
     pub fn queue_task_sync(&self, task: AiTask) {
         let sender = self.sender.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             if let Err(e) = sender.send(task).await {
                 eprintln!("Failed to queue AI task: {:?}", e);
             }

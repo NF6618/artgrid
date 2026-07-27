@@ -1,5 +1,6 @@
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
+use std::fs;
 
 pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
@@ -21,7 +22,8 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
             archived BOOLEAN NOT NULL DEFAULT 0,
             trashed BOOLEAN NOT NULL DEFAULT 0,
             palette TEXT,
-            color_profile TEXT
+            color_profile TEXT,
+            folder_id TEXT
         )",
         [],
     )?;
@@ -97,4 +99,11 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
     )?;
 
     Ok(conn)
+}
+
+pub fn reset_db_schema(db_path: &PathBuf) -> Result<Connection> {
+    if db_path.exists() {
+        let _ = fs::remove_file(db_path);
+    }
+    init_db(db_path)
 }

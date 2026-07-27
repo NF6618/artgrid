@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ArtGridNode, Viewport, ToolType, Point, NoteColor, ImageNode, NoteNode, TextNode, ShapeNode, PenNode, SectionNode } from '../engine/types';
+import { ArtGridNode, Viewport, ToolType, Point, NoteColor, ImageNode, NoteNode, TextNode, ShapeNode, PenNode, ArrowNode, SectionNode } from '../engine/types';
 import { drawCanvasGrid, snapToGrid } from '../engine/grid';
 import { HistoryManager } from '../engine/history';
 import { BoardToolbar } from './BoardToolbar';
@@ -21,11 +21,13 @@ import {
 } from '../../../components/Icons';
 
 interface ArtGridCanvasProps {
+  boardId?: string | null;
   initialNodes: ArtGridNode[];
   onNodesChange: (nodes: ArtGridNode[]) => void;
 }
 
 export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
+  boardId,
   initialNodes,
   onNodesChange,
 }) => {
@@ -55,19 +57,25 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
   const [isMarquee, setIsMarquee] = useState(false);
   const [marqueeBox, setMarqueeBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
 
-  // Drawing state
+  // Pen Drawing state
   const [isPenDrawing, setIsPenDrawing] = useState(false);
   const [currentPenPoints, setCurrentPenPoints] = useState<Point[]>([]);
+
+  // Arrow Drawing state
+  const [isArrowDrawing, setIsArrowDrawing] = useState(false);
+  const [arrowStart, setArrowStart] = useState<Point | null>(null);
+  const [arrowEnd, setArrowEnd] = useState<Point | null>(null);
 
   // Canvas Ref
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Sync initial nodes when board changes
+  // Sync initial nodes when switching active board
   useEffect(() => {
     setNodes(initialNodes);
     historyRef.current.clear();
-  }, [initialNodes]);
+    setSelectedIds([]);
+  }, [boardId]);
 
   // Update parent on nodes change
   const updateNodes = useCallback((newNodes: ArtGridNode[], recordHistory = true) => {
@@ -143,6 +151,27 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
 
     if (e.button !== 0) return;
     const world = screenToWorld(e.clientX, e.clientY);
+
+    // Eraser Tool
+    if (activeTool === 'eraser') {
+      const clickedNode = [...nodes].reverse().find(n => (
+        world.x >= n.x && world.x <= n.x + n.width &&
+        world.y >= n.y && world.y <= n.y + n.height
+      ));
+      if (clickedNode) {
+        updateNodes(nodes.filter(n => n.id !== clickedNode.id));
+        setSelectedIds(prev => prev.filter(id => id !== clickedNode.id));
+      }
+      return;
+    }
+
+    // Arrow / Connector Tool
+    if (activeTool === 'arrow') {
+      setIsArrowDrawing(true);
+      setArrowStart(world);
+      setArrowEnd(world);
+      return;
+    }
 
     // Pen Tool Drawing
     if (activeTool === 'pen') {
@@ -313,10 +342,13 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
       if (!isCmdOrCtrl) {
         if (e.key.toLowerCase() === 'v') setActiveTool('select');
         if (e.key.toLowerCase() === 'h') setActiveTool('pan');
+        if (e.key.toLowerCase() === 's') setActiveTool('section');
         if (e.key.toLowerCase() === 'n') setActiveTool('note');
         if (e.key.toLowerCase() === 't') setActiveTool('text');
         if (e.key.toLowerCase() === 'r') setActiveTool('shape');
+        if (e.key.toLowerCase() === 'a') setActiveTool('arrow');
         if (e.key.toLowerCase() === 'p') setActiveTool('pen');
+        if (e.key.toLowerCase() === 'e') setActiveTool('eraser');
       }
     };
 
@@ -374,6 +406,12 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
 
     if (isPanning) {
       setViewport(v => ({ ...v, x: e.clientX - panStart.x, y: e.clientY - panStart.y }));
+      return;
+    }
+
+    if (isArrowDrawing && arrowStart) {
+      const world = screenToWorld(e.clientX, e.clientY);
+      setArrowEnd(world);
       return;
     }
 
@@ -436,6 +474,37 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
     }
 
     if (isPanning) setIsPanning(false);
+
+    if (isArrowDrawing && arrowStart && arrowEnd) {
+      setIsArrowDrawing(false);
+      const minX = Math.min(arrowStart.x, arrowEnd.x);
+      const minY = Math.min(arrowStart.y, arrowEnd.y);
+      const maxX = Math.max(arrowStart.x, arrowEnd.x);
+      const maxY = Math.max(arrowStart.y, arrowEnd.y);
+
+      const dx = arrowEnd.x - arrowStart.x;
+      const dy = arrowEnd.y - arrowStart.y;
+      if (Math.hypot(dx, dy) > 10) {
+        const arrowNode: ArrowNode = {
+          id: `node_${crypto.randomUUID()}`,
+          type: 'arrow',
+          x: minX - 10,
+          y: minY - 10,
+          width: Math.max(30, maxX - minX + 20),
+          height: Math.max(30, maxY - minY + 20),
+          startPoint: { x: arrowStart.x - (minX - 10), y: arrowStart.y - (minY - 10) },
+          endPoint: { x: arrowEnd.x - (minX - 10), y: arrowEnd.y - (minY - 10) },
+          color: 'var(--accent-primary)',
+          strokeWidth: 3,
+          arrowHead: 'end',
+        };
+        updateNodes([...nodes, arrowNode]);
+        setSelectedIds([arrowNode.id]);
+      }
+      setArrowStart(null);
+      setArrowEnd(null);
+      setActiveTool('select');
+    }
 
     if (isPenDrawing) {
       setIsPenDrawing(false);
@@ -524,7 +593,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
   // Node Property Bar Handlers
   const handleDeleteSelection = () => {
     if (selectedIds.length === 0) return;
-    updateNodes(nodes.filter(n => !selectedIds.includes(n.id)));
+    updateNodes(nodes.filter(n => !selectedIds.includes(n.id)), true);
     setSelectedIds([]);
   };
 
@@ -585,6 +654,34 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
     updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'text' ? { ...n, color } : n));
   };
 
+  const handleChangeShapeFill = (fillColor: string) => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'shape' ? { ...n, fillColor } : n));
+  };
+
+  const handleChangeShapeStroke = (strokeColor: string) => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'shape' ? { ...n, strokeColor } : n));
+  };
+
+  const handleChangeShapeType = (shapeType: 'rectangle' | 'ellipse') => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'shape' ? { ...n, shapeType } : n));
+  };
+
+  const handleChangePenColor = (color: string) => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'pen' ? { ...n, color } : n));
+  };
+
+  const handleChangePenWidth = (strokeWidth: number) => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'pen' ? { ...n, strokeWidth } : n));
+  };
+
+  const handleChangeArrowColor = (color: string) => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'arrow' ? { ...n, color } : n));
+  };
+
+  const handleChangeSectionColor = (color: string) => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'section' ? { ...n, color } : n));
+  };
+
   const selectedNodes = nodes.filter(n => selectedIds.includes(n.id));
 
   // Right-click Context Menu State
@@ -636,7 +733,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         position: 'relative',
         overflow: 'hidden',
         background: tldrawTheme === 'light' ? '#f8fafc' : 'var(--bg-base)',
-        cursor: isPanning ? 'grabbing' : activeTool === 'pan' ? 'grab' : activeTool === 'pen' ? 'crosshair' : 'default',
+        cursor: isPanning ? 'grabbing' : activeTool === 'pan' ? 'grab' : activeTool === 'pen' || activeTool === 'arrow' ? 'crosshair' : activeTool === 'eraser' ? 'not-allowed' : 'default',
         userSelect: 'none',
       }}
       onWheel={handleWheel}
@@ -689,8 +786,8 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
             >
               {/* SECTION WORKSPACE FRAME NODE */}
               {node.type === 'section' && (
-                <div style={{ width: '100%', height: '100%', border: '2px dashed var(--accent-primary)', borderRadius: 8, background: 'rgba(124, 107, 240, 0.04)', position: 'relative' }}>
-                  <div style={{ background: 'var(--accent-primary)', color: 'white', padding: '4px 12px', borderTopLeftRadius: 6, borderTopRightRadius: 6, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ width: '100%', height: '100%', border: `2px dashed ${(node as SectionNode).color || 'var(--accent-primary)'}`, borderRadius: 8, background: 'rgba(124, 107, 240, 0.04)', position: 'relative' }}>
+                  <div style={{ background: (node as SectionNode).color || 'var(--accent-primary)', color: 'white', padding: '4px 12px', borderTopLeftRadius: 6, borderTopRightRadius: 6, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     {editingNodeId === node.id ? (
                       <input 
                         autoFocus
@@ -822,6 +919,36 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
                 />
               )}
 
+              {/* ARROW / CONNECTOR NODE */}
+              {node.type === 'arrow' && (
+                <svg style={{ width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}>
+                  <defs>
+                    <marker
+                      id={`arrowhead_${node.id}`}
+                      markerWidth="10"
+                      markerHeight="7"
+                      refX="9"
+                      refY="3.5"
+                      orient="auto"
+                    >
+                      <polygon
+                        points="0 0, 10 3.5, 0 7"
+                        fill={(node as ArrowNode).color || 'var(--accent-primary)'}
+                      />
+                    </marker>
+                  </defs>
+                  <line
+                    x1={(node as ArrowNode).startPoint.x}
+                    y1={(node as ArrowNode).startPoint.y}
+                    x2={(node as ArrowNode).endPoint.x}
+                    y2={(node as ArrowNode).endPoint.y}
+                    stroke={(node as ArrowNode).color || 'var(--accent-primary)'}
+                    strokeWidth={(node as ArrowNode).strokeWidth || 3}
+                    markerEnd={`url(#arrowhead_${node.id})`}
+                  />
+                </svg>
+              )}
+
               {/* SKETCH PEN NODE */}
               {node.type === 'pen' && (
                 <svg style={{ width: '100%', height: '100%', overflow: 'visible' }}>
@@ -880,6 +1007,27 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         })}
       </div>
 
+      {/* Active Arrow Drawing Overlay */}
+      {isArrowDrawing && arrowStart && arrowEnd && (
+        <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 95 }}>
+          <defs>
+            <marker id="preview_arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent-primary)" />
+            </marker>
+          </defs>
+          <line
+            x1={arrowStart.x * viewport.zoom + viewport.x}
+            y1={arrowStart.y * viewport.zoom + viewport.y}
+            x2={arrowEnd.x * viewport.zoom + viewport.x}
+            y2={arrowEnd.y * viewport.zoom + viewport.y}
+            stroke="var(--accent-primary)"
+            strokeWidth={3}
+            strokeDasharray="6,4"
+            markerEnd="url(#preview_arrowhead)"
+          />
+        </svg>
+      )}
+
       {/* Marquee Drag Selection Overlay */}
       {isMarquee && marqueeBox && (
         <div
@@ -908,6 +1056,13 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         onChangeFontFamily={handleChangeFontFamily}
         onChangeFontSize={handleChangeFontSize}
         onChangeTextColor={handleChangeTextColor}
+        onChangeShapeFill={handleChangeShapeFill}
+        onChangeShapeStroke={handleChangeShapeStroke}
+        onChangeShapeType={handleChangeShapeType}
+        onChangePenColor={handleChangePenColor}
+        onChangePenWidth={handleChangePenWidth}
+        onChangeArrowColor={handleChangeArrowColor}
+        onChangeSectionColor={handleChangeSectionColor}
         onToggleLock={handleToggleLock}
       />
 

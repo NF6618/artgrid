@@ -1,5 +1,5 @@
 use pdfium_render::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::fs;
 

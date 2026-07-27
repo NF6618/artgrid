@@ -85,8 +85,13 @@ fn extract_color_palette(path: &PathBuf) -> (Option<Vec<String>>, Option<String>
     }
 }
 
-#[tauri::command]
-pub fn open_vault(path: String, state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
+fn open_vault_internal(
+    path: String,
+    reset_schema: bool,
+    _is_new: bool,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<String, String> {
     let vault_dir = PathBuf::from(&path);
     
     if !vault_dir.exists() {
@@ -124,8 +129,12 @@ pub fn open_vault(path: String, state: State<'_, AppState>, app: AppHandle) -> R
         let _ = fs::remove_dir_all(&legacy_media);
     }
 
-    // Initialize Database in artgrid/ directory
-    let conn = crate::db::init_db(&target_db).map_err(|e| e.to_string())?;
+    // Initialize or Reset Database in artgrid/ directory
+    let conn = if reset_schema {
+        crate::db::reset_db_schema(&target_db).map_err(|e| e.to_string())?
+    } else {
+        crate::db::init_db(&target_db).map_err(|e| e.to_string())?
+    };
     
     // Update State
     *state.db.lock().unwrap() = Some(conn);
@@ -135,6 +144,21 @@ pub fn open_vault(path: String, state: State<'_, AppState>, app: AppHandle) -> R
     crate::watcher::start_watcher(app, vault_dir);
     
     Ok("Vault opened successfully".to_string())
+}
+
+#[tauri::command]
+pub fn open_vault(path: String, state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
+    open_vault_internal(path, false, false, state, app)
+}
+
+#[tauri::command]
+pub fn create_vault(path: String, state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
+    open_vault_internal(path, false, true, state, app)
+}
+
+#[tauri::command]
+pub fn open_vault_with_options(path: String, reset_schema: bool, state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
+    open_vault_internal(path, reset_schema, false, state, app)
 }
 
 #[tauri::command]
@@ -388,6 +412,7 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
         color_profile: color_profile.clone(),
         tags: vec![],
         collections: vec![],
+        folder_id: None,
     };
     
     conn.execute(
@@ -476,6 +501,7 @@ pub fn save_base64_image_asset(title: String, base64_data: String, state: State<
         color_profile: color_profile.clone(),
         tags: vec![],
         collections: vec![],
+        folder_id: None,
     };
 
     conn.execute(
@@ -554,6 +580,7 @@ pub fn save_text_asset(title: String, text_content: String, state: State<'_, App
         color_profile: None,
         tags: vec![],
         collections: vec![],
+        folder_id: None,
     };
 
     conn.execute(

@@ -144,7 +144,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button 
             className="toolbar__btn" 
-            title="Pop-out Media Viewer Window" 
+            title="Open Media Viewer" 
             onClick={() => (window as any).__artgridOpenPreviewAsset?.(asset)}
           >
             <IconMaximize size={14} />
@@ -176,7 +176,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         className="detail-panel__preview" 
         onClick={() => (window as any).__artgridOpenPreviewAsset?.(asset)}
         style={{ cursor: 'pointer' }}
-        title="Click to Open Standalone Media Viewer Window"
+        title="Click to Open Media Viewer"
       >
         <div
           style={{

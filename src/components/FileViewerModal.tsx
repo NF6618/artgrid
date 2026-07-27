@@ -1,7 +1,7 @@
 import React, { useState, useEffect, ReactNode } from 'react';
 import { Asset } from './Gallery';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { IconClose, IconMaximize, IconInfo } from './Icons';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { IconClose, IconInfo } from './Icons';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { ImageViewer } from './viewers/ImageViewer';
 import { PdfViewer } from './viewers/PdfViewer';
@@ -82,14 +82,16 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
       e.stopPropagation();
       e.preventDefault();
     }
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      const win = getCurrentWindow();
-      await win.close();
-    } catch (err) {
+    if (isPopOutWindow) {
       try {
-        window.close();
-      } catch (_) {}
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const win = getCurrentWindow();
+        await win.close();
+      } catch (err) {
+        try {
+          window.close();
+        } catch (_) {}
+      }
     }
     onClose();
   };
@@ -103,16 +105,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [visible, onClose]);
 
-  const handlePopOut = async () => {
-    if (!asset) return;
-    try {
-      await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
-      onClose();
-    } catch (err) {
-      console.error("Failed to pop out window via IPC:", err);
-      setIsPopOutWindow(true);
-    }
-  };
+
 
   const currentAssetIndex = asset ? allAssets.findIndex(a => a.id === asset.id) : -1;
 
@@ -206,14 +199,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           {viewerControls}
 
-          {/* Pop-out Window Mode Toggle */}
-          <button 
-            className="toolbar__btn"
-            onClick={(e) => { e.stopPropagation(); handlePopOut(); }}
-            title="Pop-out into Standalone Window"
-          >
-            <IconMaximize size={15} />
-          </button>
+
 
           {/* Detail Panel Toggle (visible in standalone window) */}
           {showDetailToggle && onToggleDetail && (

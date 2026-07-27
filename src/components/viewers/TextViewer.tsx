@@ -16,7 +16,7 @@ const renderFormattedMarkdown = (text: string) => {
   });
 };
 
-export const TextViewer: React.FC<ViewerProps & { isDocx?: boolean }> = ({ asset, resolvedUrl, isDocx = false, setViewerControls }) => {
+export const TextViewer: React.FC<ViewerProps & { isDocx?: boolean }> = ({ asset: _asset, resolvedUrl, isDocx = false, setViewerControls }) => {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
 

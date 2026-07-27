@@ -1,12 +1,12 @@
 import React from 'react';
 import { useTabStore, AppTab } from '../stores/useTabStore';
-import { IconClose, IconMaximize } from './Icons';
+import { IconClose } from './Icons';
 
 interface TabBarProps {
-  onPopOutTab: (tab: AppTab) => void;
+  onPopOutTab?: (tab: AppTab) => void;
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ onPopOutTab }) => {
+export const TabBar: React.FC<TabBarProps> = () => {
   const { tabs, activeTabId, setActiveTab, closeTab } = useTabStore();
 
   return (
@@ -69,19 +69,6 @@ export const TabBar: React.FC<TabBarProps> = ({ onPopOutTab }) => {
             </span>
 
             <div style={{ display: 'flex', gap: 4, alignItems: 'center', opacity: isActive ? 1 : 0.4 }}>
-              {isActive && (
-                <button
-                  className="toolbar__btn"
-                  title="Pop Out Tab"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPopOutTab(tab);
-                  }}
-                  style={{ width: 20, height: 20, minWidth: 20, padding: 0 }}
-                >
-                  <IconMaximize size={12} />
-                </button>
-              )}
               <button
                 className="toolbar__btn"
                 title="Close Tab"

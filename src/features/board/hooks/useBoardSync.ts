@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { useBoardStore } from '../../../stores/useBoardStore';
 import { ArtGridNode } from '../engine/types';
 
+let timeoutId: any;
+let lastPendingSave: { boardId: string; nodes: ArtGridNode[] } | null = null;
+
 export function useBoardSync(boardId: string | null) {
   const [nodes, setNodes] = useState<ArtGridNode[] | null>(null);
   const boards = useBoardStore(state => state.boards);
@@ -13,13 +16,20 @@ export function useBoardSync(boardId: string | null) {
     }
 
     const board = boards.find(b => b.id === boardId);
-    if (!board) return;
-
-    if (board.nodes && Array.isArray(board.nodes)) {
+    if (board && board.nodes && Array.isArray(board.nodes)) {
       setNodes(board.nodes as ArtGridNode[]);
     } else {
       setNodes([]);
     }
+
+    return () => {
+      // Flush pending save immediately on unmount or board change
+      if (timeoutId && lastPendingSave) {
+        clearTimeout(timeoutId);
+        useBoardStore.getState().updateBoardNodes(lastPendingSave.boardId, lastPendingSave.nodes);
+        lastPendingSave = null;
+      }
+    };
   }, [boardId]);
 
   return {
@@ -27,15 +37,20 @@ export function useBoardSync(boardId: string | null) {
     saveNodes: (newNodes: ArtGridNode[]) => {
       if (!boardId) return;
       setNodes(newNodes);
-      debounceSave(boardId, newNodes);
+      // Immediately update Zustand store in memory so state is always current
+      useBoardStore.setState(state => ({
+        boards: state.boards.map(b => (b.id === boardId ? { ...b, nodes: newNodes } : b)),
+      }));
+      debounceBackendSave(boardId, newNodes);
     }
   };
 }
 
-let timeoutId: any;
-function debounceSave(boardId: string, nodes: ArtGridNode[]) {
+function debounceBackendSave(boardId: string, nodes: ArtGridNode[]) {
+  lastPendingSave = { boardId, nodes };
   clearTimeout(timeoutId);
   timeoutId = setTimeout(() => {
     useBoardStore.getState().updateBoardNodes(boardId, nodes);
-  }, 800);
+    lastPendingSave = null;
+  }, 400);
 }

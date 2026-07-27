@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{State, AppHandle};
+use tauri::State;
 use uuid::Uuid;
 use chrono::Utc;
 use crate::import::AppState;

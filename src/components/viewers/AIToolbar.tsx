@@ -1,5 +1,4 @@
 import React from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Asset } from '../Gallery';
 
 export interface AIToolbarProps {
@@ -8,9 +7,11 @@ export interface AIToolbarProps {
   onAssetsUpdated?: () => void;
 }
 
-export const AIToolbar: React.FC<AIToolbarProps> = ({ asset, resolvedUrl, onAssetsUpdated }) => {
-  const isImage = asset.type.startsWith('image');
-  const isPdf = asset.type === 'application/pdf';
+export const AIToolbar: React.FC<AIToolbarProps> = ({ asset }) => {
+  const assetType = asset?.type || (asset as any)?.type_ || '';
+  const ext = (asset?.filename || asset?.title || '').split('.').pop()?.toLowerCase() || '';
+  const isImage = assetType.startsWith('image') || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp'].includes(ext);
+  const isPdf = assetType.includes('pdf') || ext === 'pdf';
 
   const handleRunBackgroundRemoval = async () => {
     try {
