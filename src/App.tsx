@@ -66,28 +66,26 @@ const App: React.FC = () => {
   // Handle opening preview asset directly in dedicated desktop OS window
   const handleOpenPreviewAsset = useCallback(async (asset: Asset) => {
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const label = `viewer_${sanitizedId}_${Date.now()}`;
-      const origin = window.location.origin;
-      const pathname = window.location.pathname;
-      const popoutUrl = `${origin}${pathname}?previewAssetId=${encodeURIComponent(asset.id)}`;
-      
-      new WebviewWindow(label, {
-        url: popoutUrl,
-        title: `ArtGrid Media Viewer — ${asset.title}`,
-        width: 1200,
-        height: 850,
-        decorations: true,
-        resizable: true,
-        shadow: true,
-        focus: true,
-        center: true,
-      });
+      await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
     } catch (e) {
-      console.warn("WebviewWindow fallback to Rust command or inline preview:", e);
+      console.warn("Rust open_standalone_window fallback to JS WebviewWindow:", e);
       try {
-        await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const label = `viewer_${sanitizedId}_${Date.now()}`;
+        const popoutUrl = `${window.location.origin}${window.location.pathname}?previewAssetId=${encodeURIComponent(asset.id)}`;
+        
+        new WebviewWindow(label, {
+          url: popoutUrl,
+          title: `ArtGrid Media Viewer — ${asset.title}`,
+          width: 1200,
+          height: 850,
+          decorations: true,
+          resizable: true,
+          shadow: true,
+          focus: true,
+          center: true,
+        });
       } catch (err) {
         setPreviewAsset(asset);
       }
@@ -103,11 +101,18 @@ const App: React.FC = () => {
   const [standaloneAsset, setStandaloneAsset] = useState<Asset | null>(null);
 
   useEffect(() => {
-    if (standaloneAssetId && assets.length > 0) {
-      const found = assets.find(a => a.id === standaloneAssetId);
-      if (found) setStandaloneAsset(found);
+    if (standaloneAssetId) {
+      // Direct Rust IPC query for assets to guarantee instant loading in standalone window
+      invoke<Asset[]>('get_assets')
+        .then(fetchedAssets => {
+          const found = fetchedAssets.find(a => a.id === standaloneAssetId);
+          if (found) {
+            setStandaloneAsset(found);
+          }
+        })
+        .catch(err => console.error("Failed to load standalone asset via IPC:", err));
     }
-  }, [standaloneAssetId, assets]);
+  }, [standaloneAssetId]);
   
   const { boards, activeBoardId, loadBoards, createBoard, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
 

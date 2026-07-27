@@ -110,49 +110,120 @@ function findVaultPath() {
   return null;
 }
 
+// ── Kill processes utilizing target port ─────────────────────────────────────
+
+function killPortAndProcesses(port = 1420) {
+  log(`${BOLD}[0/5] Terminating running processes on port ${port}…${RESET}`);
+  if (process.platform === 'win32') {
+    try {
+      execSync(`powershell -Command "Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"`, { stdio: 'ignore' });
+      ok(`Freed port ${port}`);
+    } catch (_) {}
+    try {
+      execSync('taskkill /F /IM artgrid.exe', { stdio: 'ignore' });
+      ok('Terminated running artgrid.exe process');
+    } catch (_) {}
+  } else {
+    try {
+      execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore' });
+      ok(`Freed port ${port}`);
+    } catch (_) {}
+    try {
+      execSync('pkill -9 -f artgrid', { stdio: 'ignore' });
+      ok('Terminated running artgrid processes');
+    } catch (_) {}
+  }
+}
+
+import readline from 'readline';
+
+function askPrompt(question) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise(resolve => {
+    rl.question(question, answer => {
+      rl.close();
+      resolve(answer.trim().toLowerCase());
+    });
+  });
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 console.log();
 console.log(`${BOLD}${RED}╔════════════════════════════════════════════╗${RESET}`);
-console.log(`${BOLD}${RED}║   ArtGrid — Fresh Dev Reset                ║${RESET}`);
+console.log(`${BOLD}${RED}║   ArtGrid — Fresh Dev Launch               ║${RESET}`);
 console.log(`${BOLD}${RED}╚════════════════════════════════════════════╝${RESET}`);
 console.log();
 
-// 1. Vault folder
-log(`${BOLD}[1/4] Locating vault data…${RESET}`);
-const vaultPath = findVaultPath();
-if (vaultPath) {
-  info(`Vault path resolved to: ${vaultPath}`);
-  rmrf(vaultPath);
+// 0. Close running processes on port 1420
+killPortAndProcesses(1420);
+console.log();
+
+// Determine whether to clear data based on CLI flags or interactive prompt
+const cliArgs = process.argv.slice(2);
+const forceClear = cliArgs.includes('--clear') || cliArgs.includes('--clear-data') || cliArgs.includes('-y') || cliArgs.includes('--yes');
+const forceKeep  = cliArgs.includes('--keep') || cliArgs.includes('--keep-data') || cliArgs.includes('--skip') || cliArgs.includes('--skip-clear') || cliArgs.includes('--no-clear');
+
+let shouldWipeData = false;
+
+if (forceClear) {
+  shouldWipeData = true;
+  info('CLI option specified: Wiping all persisted data.');
+} else if (forceKeep) {
+  shouldWipeData = false;
+  info('CLI option specified: Preserving existing data.');
+} else if (process.stdin.isTTY) {
+  const answer = await askPrompt(`  ${YEL}?${RESET}  ${BOLD}Do you want to clear all persisted vault data & app caches? (y/N): ${RESET}`);
+  shouldWipeData = ['y', 'yes'].includes(answer);
 } else {
-  skip('No vault path found in plugin-store — nothing to remove');
+  shouldWipeData = false;
+  skip('Non-interactive terminal: Preserving data by default. (Use npm run tauri:fresh -- --clear to force wipe)');
 }
 console.log();
 
-// 2. Tauri app-data dir (settings, logs, plugin-store JSON)
-log(`${BOLD}[2/4] Clearing Tauri app-data…${RESET}`);
-info(`App data dir: ${APP_DATA}`);
-rmrf(APP_DATA);
-console.log();
+if (shouldWipeData) {
+  // 1. Vault folder
+  log(`${BOLD}[1/4] Locating vault data…${RESET}`);
+  const vaultPath = findVaultPath();
+  if (vaultPath) {
+    info(`Vault path resolved to: ${vaultPath}`);
+    rmrf(vaultPath);
+  } else {
+    skip('No vault path found in plugin-store — nothing to remove');
+  }
+  console.log();
 
-// 3. WebView2 dev cache (Windows only)
-log(`${BOLD}[3/4] Clearing WebView2 dev cache…${RESET}`);
-if (process.platform === 'win32') {
-  const wv2Cache = path.join(os.tmpdir(), 'artgrid_webview2_dev');
-  rmrf(wv2Cache);
+  // 2. Tauri app-data dir (settings, logs, plugin-store JSON)
+  log(`${BOLD}[2/4] Clearing Tauri app-data…${RESET}`);
+  info(`App data dir: ${APP_DATA}`);
+  rmrf(APP_DATA);
+  console.log();
+
+  // 3. WebView2 dev cache (Windows only)
+  log(`${BOLD}[3/4] Clearing WebView2 dev cache…${RESET}`);
+  if (process.platform === 'win32') {
+    const wv2Cache = path.join(os.tmpdir(), 'artgrid_webview2_dev');
+    rmrf(wv2Cache);
+  } else {
+    skip('WebView2 cache only applies on Windows');
+  }
+  console.log();
+
+  // 4. Vite module cache
+  log(`${BOLD}[4/4] Clearing Vite build cache…${RESET}`);
+  rmrf(path.join(projectRoot, 'node_modules', '.vite'));
+  console.log();
 } else {
-  skip('WebView2 cache only applies on Windows');
+  skip('Data clear skipped as requested. Preserving vault & application state.');
+  console.log();
 }
-console.log();
-
-// 4. Vite module cache
-log(`${BOLD}[4/4] Clearing Vite build cache…${RESET}`);
-rmrf(path.join(projectRoot, 'node_modules', '.vite'));
-console.log();
 
 // ── Done — launch tauri dev ───────────────────────────────────────────────────
 
-console.log(`${GRN}${BOLD}  ✔  All data cleared. Launching tauri dev…${RESET}`);
+console.log(`${GRN}${BOLD}  ✔  Launching tauri dev…${RESET}`);
 console.log();
 
 const child = spawn('npm', ['run', 'tauri', 'dev'], {

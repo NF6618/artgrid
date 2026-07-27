@@ -287,10 +287,27 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
     return () => { isMounted = false; };
   }, [pdfDoc, pdfPageNum, pdfScale]);
 
+  const handleCloseWindow = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const win = getCurrentWindow();
+      await win.close();
+    } catch (err) {
+      try {
+        window.close();
+      } catch (_) {}
+    }
+    onClose();
+  };
+
   useEffect(() => {
     if (!visible) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleCloseWindow();
       else if (e.key === 'ArrowRight') handlePageTurn(pdfPageNum + 1);
       else if (e.key === 'ArrowLeft') handlePageTurn(pdfPageNum - 1);
     };
@@ -770,7 +787,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
 
           <button 
             className="toolbar__btn" 
-            onClick={onClose}
+            onClick={handleCloseWindow}
             style={{ width: 32, height: 32, minWidth: 32, background: 'rgba(255,255,255,0.1)', color: 'white', borderRadius: '50%' }}
           >
             <IconClose size={16} />

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{State, AppHandle};
+use tauri::{State, AppHandle, Manager};
 use uuid::Uuid;
 use chrono::Utc;
 
@@ -739,12 +739,26 @@ pub fn purge_all_data(state: State<'_, AppState>) -> Result<String, String> {
 pub fn open_standalone_window(app: AppHandle, asset_id: String, title: String) -> Result<(), String> {
     let sanitized_id: String = asset_id.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
     let window_label = format!("viewer_{}_{}", sanitized_id, Utc::now().timestamp_millis());
-    let url = format!("index.html?previewAssetId={}", asset_id);
 
-    match tauri::WebviewWindowBuilder::new(
+    // Retrieve active main window URL to support both Dev mode (http://localhost:1420/) and Production (tauri://localhost/)
+    let main_window = app.get_webview_window("main");
+    let target_url = if let Some(main_win) = main_window {
+        if let Ok(mut url) = main_win.url() {
+            url.set_query(Some(&format!("previewAssetId={}", asset_id)));
+            tauri::WebviewUrl::External(url)
+        } else {
+            tauri::WebviewUrl::App(format!("index.html?previewAssetId={}", asset_id).into())
+        }
+    } else {
+        tauri::WebviewUrl::App(format!("index.html?previewAssetId={}", asset_id).into())
+    };
+
+    println!("ARTGRID: Spawning standalone window '{}' with URL {:?}", window_label, target_url);
+
+    let res = tauri::WebviewWindowBuilder::new(
         &app,
         window_label,
-        tauri::WebviewUrl::App(url.into())
+        target_url
     )
     .title(format!("ArtGrid Media Viewer — {}", title))
     .inner_size(1200.0, 850.0)
@@ -752,9 +766,17 @@ pub fn open_standalone_window(app: AppHandle, asset_id: String, title: String) -
     .resizable(true)
     .shadow(true)
     .center()
-    .build() {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e.to_string()),
+    .build();
+
+    match res {
+        Ok(_) => {
+            println!("ARTGRID: Standalone window spawned successfully!");
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("ARTGRID ERROR: Failed to spawn window: {:?}", e);
+            Err(e.to_string())
+        }
     }
 }
 
