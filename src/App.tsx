@@ -16,6 +16,9 @@ import { useMetadataStore } from './stores/useMetadataStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
 import { ImportVaultModal } from './components/ImportVaultModal';
+import { SplashLoader } from './components/SplashLoader';
+import { ImportProgressModal, ImportProgressData } from './components/ImportProgressModal';
+import { VaultInitModal } from './components/VaultInitModal';
 import { BoardsGallery } from './components/BoardsGallery';
 import { TabBar } from './components/TabBar';
 import { useTabStore, TabType } from './stores/useTabStore';
@@ -36,6 +39,8 @@ const App: React.FC = () => {
   const [showDetailPanel, setShowDetailPanel] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [showVaultInitModal, setShowVaultInitModal] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgressData | null>(null);
 
   const { isLoaded, loadSettings, vaultPath: savedVaultPath, defaultView, compactMode, updateSettings, addVault } = useSettingsStore();
 
@@ -44,7 +49,21 @@ const App: React.FC = () => {
   }, [loadSettings]);
 
   // Library state via Tauri
-  const { assets, folders, vaultPath, setVaultPath, openVault, loadVault, importFiles, setAssets, loadAssets } = useLibrary();
+  const { assets, folders, isLoading, vaultPath, setVaultPath, openVault, createVault, loadVault, scanVaultMedia, importFiles, setAssets, loadAssets } = useLibrary();
+
+  // Listen for real-time import progress from Rust backend
+  useEffect(() => {
+    const unlisten = listen<ImportProgressData>('import-progress', (event) => {
+      setImportProgress(event.payload);
+      if (event.payload.current >= event.payload.total) {
+        setTimeout(() => setImportProgress(null), 1200);
+      }
+    });
+
+    return () => {
+      unlisten.then(f => f());
+    };
+  }, []);
 
   // Auto load saved vault on startup
   React.useEffect(() => {
@@ -768,8 +787,41 @@ const App: React.FC = () => {
         vaultPath={vaultPath}
         onChangeVault={() => {
           setShowSettings(false);
-          openVault();
+          setShowVaultInitModal(true);
         }}
+      />
+
+      {/* Vault Initialization (Create / Open) Modal */}
+      <VaultInitModal
+        visible={showVaultInitModal}
+        onClose={() => setShowVaultInitModal(false)}
+        onCreateVault={async (path) => {
+          await createVault(path);
+          updateTabContext('default', { type: defaultView as TabType, title: defaultView.charAt(0).toUpperCase() + defaultView.slice(1) });
+        }}
+        onOpenVault={async (path, resetSchema) => {
+          await loadVault(path, resetSchema);
+          await scanVaultMedia();
+          updateTabContext('default', { type: defaultView as TabType, title: defaultView.charAt(0).toUpperCase() + defaultView.slice(1) });
+        }}
+      />
+
+      {/* Loading Splash Screen */}
+      <SplashLoader
+        visible={isLoading && !importProgress}
+        statusText="Initializing ArtGrid Vault..."
+        subText="Loading media workspace & indexing local assets"
+        logs={[
+          'Connected to ArtGrid SQLite engine',
+          'Syncing media gallery & board canvas',
+          'Ready!'
+        ]}
+      />
+
+      {/* Real-time Import Progress Toast/Modal */}
+      <ImportProgressModal
+        visible={importProgress !== null}
+        progress={importProgress}
       />
 
       {/* Import Target Vault Selection Modal */}

@@ -3,6 +3,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Asset, Folder } from '../components/Gallery';
+import { useSettingsStore } from '../stores/useSettingsStore';
 
 export function useLibrary() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -44,13 +45,33 @@ export function useLibrary() {
     };
   }, [loadAssets]);
 
-  const loadVault = useCallback(async (path: string) => {
+  const loadVault = useCallback(async (path: string, resetSchema = false) => {
+    setIsLoading(true);
     try {
-      await invoke('open_vault', { path });
+      if (resetSchema) {
+        await invoke('open_vault_with_options', { path, resetSchema: true });
+      } else {
+        await invoke('open_vault', { path });
+      }
       setVaultPath(path);
       await loadAssets();
     } catch (err) {
       console.error('Failed to load vault:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadAssets]);
+
+  const createVault = useCallback(async (path: string) => {
+    setIsLoading(true);
+    try {
+      await invoke('create_vault', { path });
+      setVaultPath(path);
+      await loadAssets();
+    } catch (err) {
+      console.error('Failed to create vault:', err);
+    } finally {
+      setIsLoading(false);
     }
   }, [loadAssets]);
 
@@ -70,8 +91,20 @@ export function useLibrary() {
     }
   }, [loadVault]);
 
+  const scanVaultMedia = useCallback(async () => {
+    try {
+      const added: number = await invoke('scan_vault_media');
+      if (added > 0) {
+        await loadAssets();
+      }
+      return added;
+    } catch (err) {
+      console.error('Failed to scan vault media:', err);
+      return 0;
+    }
+  }, [loadAssets]);
 
-  const importFiles = async (explicitPaths?: string[], targetVaultPath?: string) => {
+  const importFiles = async (explicitPaths?: string[], targetVaultPath?: string, targetFolderId?: string) => {
     try {
       if (targetVaultPath && targetVaultPath !== vaultPath) {
         await loadVault(targetVaultPath);
@@ -93,11 +126,17 @@ export function useLibrary() {
         files = Array.isArray(selected) ? selected : [selected];
       }
       
+      if (files.length === 0) return;
+
       setIsLoading(true);
-      for (const file of files) {
-        await invoke('import_file', { filePath: file });
-      }
-      
+      const moveFiles = useSettingsStore.getState().importMode === 'move';
+
+      await invoke('import_batch_files', {
+        files,
+        moveFiles,
+        folderId: targetFolderId || null
+      });
+
       await loadAssets(); 
     } catch (err) {
       console.error('Failed to import files:', err);
@@ -112,10 +151,12 @@ export function useLibrary() {
     isLoading,
     vaultPath,
     openVault,
+    createVault,
     loadVault,
     loadAssets,
+    scanVaultMedia,
     importFiles,
-    setAssets, // For optimistic UI updates like toggling favorites
+    setAssets,
     setVaultPath
   };
 }

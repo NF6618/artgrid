@@ -19,21 +19,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [hasChanges, setHasChanges] = useState(false);
 
-  const { theme, defaultView, autoWatch, compactMode, vaults, updateSettings, removeVault } = useSettingsStore();
+  const { theme, defaultView, autoWatch, compactMode, importMode, vaults, updateSettings, removeVault } = useSettingsStore();
 
   const [settings, setSettings] = useState<Partial<AppSettings>>({
     theme,
     defaultView,
     autoWatch,
-    compactMode
+    compactMode,
+    importMode
   });
 
   useEffect(() => {
     if (visible) {
-      setSettings({ theme, defaultView, autoWatch, compactMode });
+      setSettings({ theme, defaultView, autoWatch, compactMode, importMode });
       setHasChanges(false);
     }
-  }, [visible, theme, defaultView, autoWatch, compactMode]);
+  }, [visible, theme, defaultView, autoWatch, compactMode, importMode]);
 
   if (!visible) return null;
 
@@ -154,20 +155,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div>
                   <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    File System
+                    File System & Import
                   </h3>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={settings.autoWatch} 
-                      onChange={(e) => { setSettings({...settings, autoWatch: e.target.checked}); setHasChanges(true); }}
-                      style={{ cursor: 'pointer' }}
-                    />
-                    <div>
-                      <div style={{ fontWeight: 500 }}>Auto-watch Vault Folder</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically import new files dropped into the vault's artgrid/media folder</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.autoWatch} 
+                        onChange={(e) => { setSettings({...settings, autoWatch: e.target.checked}); setHasChanges(true); }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 500 }}>Auto-watch Vault Folder</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically import new files dropped into the vault's artgrid/media folder</div>
+                      </div>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginTop: 4 }}>
+                      <span style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500 }}>Default File Import Action</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Choose whether imported files are copied or moved into the vault</div>
+                      </span>
+                      <select 
+                        style={{ padding: '6px 12px', borderRadius: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                        value={settings.importMode || 'copy'}
+                        onChange={(e) => { setSettings({...settings, importMode: e.target.value as 'copy' | 'move'}); setHasChanges(true); }}
+                      >
+                        <option value="copy">Copy Files to Vault (Default)</option>
+                        <option value="move">Move Files to Vault (Frees Space)</option>
+                      </select>
+                    </label>
+
+                    <div style={{ fontSize: '11px', color: '#cbd5e1', background: 'rgba(124, 107, 240, 0.1)', padding: '10px 14px', borderRadius: 6, border: '1px solid rgba(124, 107, 240, 0.25)', lineHeight: 1.4 }}>
+                      💡 <strong>Tip for Large Imports:</strong> When importing 100MB+ files or multi-gigabyte collections, select <strong>Move Files</strong> to transfer files instantly without taking up double disk space.
                     </div>
-                  </label>
+                  </div>
                 </div>
               </div>
             )}
