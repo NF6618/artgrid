@@ -29,6 +29,7 @@ export interface AppSettings {
   tldrawSnapToGrid?: boolean;
   importMode?: 'copy' | 'move';
   enableVerboseLogging?: boolean;
+  enableAiModels?: boolean;
 }
 
 interface SettingsState extends AppSettings {
@@ -50,6 +51,7 @@ const defaultSettings: AppSettings = {
   compactMode: false,
   importMode: 'copy',
   enableVerboseLogging: true,
+  enableAiModels: true,
   bgBaseColor: '#0a0a0f',
   bgSecondaryColor: '#16161f',
   accentColor: '#7c6bf0',

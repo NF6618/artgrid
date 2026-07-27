@@ -129,7 +129,6 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
   
   const [viewMode, setViewMode] = useState<'flipbook' | 'scroll'>('flipbook');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{page: number, text: string}[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
@@ -475,7 +474,6 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     if (e) e.preventDefault();
     if (!searchQuery.trim() || !pdfDoc) return;
     setIsSearching(true);
-    setSearchResults([]);
     
     const results: {page: number, text: string}[] = [];
     const query = searchQuery.toLowerCase();
@@ -489,7 +487,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
           results.push({ page: i, text: text.substring(0, 50) + "..." });
         }
       }
-      setSearchResults(results);
+      
       if (results.length === 0) {
         alert("No matches found.");
       } else {
@@ -681,7 +679,6 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             ))}
           </div>
         ) : (
-          {/* Fast 1-Page PDF Flipbook Container with 3D Page Turn Animation */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, position: 'relative', perspective: 1400 }}>
           {/* Previous Page Arrow Overlay */}
           <button
@@ -777,7 +774,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             <button 
               className="btn btn--primary" 
               onClick={handleExtractCroppedPdfRegion}
-              style={{ position: 'absolute', bottom: -50, left: '50%', transform: 'translateX(-50%)', padding: '8px 16px', fontSize: '13px', zIndex: 100, display: 'flex', alignItems: 'center', gap: 6 }}
+              style={{ position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)', padding: '8px 16px', fontSize: '13px', zIndex: 9999, display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 8px 30px rgba(0,0,0,0.6)' }}
             >
               <IconScissors size={14} /> Extract Cropped Selection as Asset
             </button>

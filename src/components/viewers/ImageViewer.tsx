@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { removeBackground } from '@imgly/background-removal';
+import Upscaler from 'upscaler';
 import { invoke } from '@tauri-apps/api/core';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { IconPencil, IconDownload } from '../Icons';
 import { ViewerProps } from './ViewerTypes';
 import { AIToolbar } from './AIToolbar';
@@ -16,6 +19,10 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
   const [flipV, setFlipV] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
+  const { enableAiModels } = useSettingsStore();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isProcessingAI, setIsProcessingAI] = useState(false);
+  const [aiStatus, setAiStatus] = useState('');
 
   const resetImageAdjustments = () => {
     setBrightness(100);
@@ -33,6 +40,7 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
     setImageError(false);
     resetImageAdjustments();
     setShowEditStudio(false);
+    setPreviewUrl(null);
   }, [asset, resolvedUrl]);
 
   const imageFilterCss = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hueRotate}deg) blur(${blur}px)`;
@@ -41,7 +49,7 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
   const handleSaveEditedImageAsAsset = () => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = resolvedUrl;
+    img.src = previewUrl || resolvedUrl;
     img.onload = async () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
@@ -67,6 +75,50 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
         console.error("Failed to save edited image asset:", err);
       }
     };
+  };
+
+  const handleRemoveBackground = async () => {
+    setIsProcessingAI(true);
+    setAiStatus('Downloading AI models & processing...');
+    try {
+      const imageBlob = await removeBackground(previewUrl || resolvedUrl, {
+        progress: (key, current, total) => {
+          setAiStatus(`Removing background: ${key} ${Math.round((current/total)*100)}%`);
+        }
+      });
+      const objectUrl = URL.createObjectURL(imageBlob);
+      setPreviewUrl(objectUrl);
+      resetImageAdjustments();
+    } catch (e) {
+      console.error(e);
+      alert('Background removal failed.');
+    } finally {
+      setIsProcessingAI(false);
+      setAiStatus('');
+    }
+  };
+
+  const handleUpscale = async () => {
+    setIsProcessingAI(true);
+    setAiStatus('Downloading ESRGAN model & upscaling...');
+    try {
+      const upscaler = new Upscaler();
+      const dataUrl = await upscaler.upscale(previewUrl || resolvedUrl, {
+        patchSize: 64,
+        padding: 2,
+        progress: (amount) => {
+          setAiStatus(`Upscaling: ${Math.round(amount * 100)}%`);
+        }
+      });
+      setPreviewUrl(dataUrl);
+      resetImageAdjustments();
+    } catch(e) {
+      console.error(e);
+      alert('Upscaling failed. Image might be too large for browser memory.');
+    } finally {
+      setIsProcessingAI(false);
+      setAiStatus('');
+    }
   };
 
   // Provide toolbar controls to parent via setViewerControls
@@ -98,6 +150,15 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
     <>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, overflow: 'auto', position: 'relative' }}>
         <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          
+          {isProcessingAI && (
+            <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white', borderRadius: 8, backdropFilter: 'blur(4px)' }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite', marginBottom: 16 }} />
+              <h3 style={{ margin: '0 0 8px 0' }}>AI Processing...</h3>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>{aiStatus}</p>
+            </div>
+          )}
+
           {imageLoading && !imageError && (
             <div style={{ color: 'white', fontSize: '0.9rem', opacity: 0.8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
@@ -122,7 +183,7 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
             </div>
           ) : (
             <img 
-              src={resolvedUrl} 
+              src={previewUrl || resolvedUrl} 
               alt={asset.title} 
               onLoad={() => setImageLoading(false)}
               onError={(err) => {
@@ -152,7 +213,25 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
             <button className="btn btn--secondary" style={{ padding: '2px 6px', fontSize: '10px' }} onClick={resetImageAdjustments}>Reset</button>
           </div>
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '11px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+            <h5 style={{ margin: 0, fontSize: '11px', color: 'var(--accent-primary)', textTransform: 'uppercase' }}>✨ Background Removal & Upscaling</h5>
+            {enableAiModels ? (
+              <>
+                <button className="btn btn--secondary" style={{ fontSize: '12px' }} onClick={handleRemoveBackground} disabled={isProcessingAI}>
+                  {isProcessingAI ? 'Processing...' : '✂️ Remove Background'}
+                </button>
+                <button className="btn btn--secondary" style={{ fontSize: '12px' }} onClick={handleUpscale} disabled={isProcessingAI}>
+                  {isProcessingAI ? 'Processing...' : '🔎 Upscale (2x ESRGAN)'}
+                </button>
+              </>
+            ) : (
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--bg-base)', padding: 8, borderRadius: 4, textAlign: 'center' }}>
+                AI models are disabled. You can enable them in Settings.
+              </div>
+            )}
+          </div>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '11px', marginTop: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>Brightness</span><span>{brightness}%</span>
             </div>

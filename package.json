@@ -11,17 +11,20 @@
     "tauri:fresh": "node scripts/dev-fresh.mjs"
   },
   "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-log": "^2.9.0",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-store": "^2.4.4",
+    "@tensorflow/tfjs": "^4.11.0",
     "mammoth": "^1.8.0",
     "pdfjs-dist": "^3.11.174",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tesseract.js": "^7.0.0",
+    "upscaler": "^1.0.0",
     "uuid": "^14.0.1",
     "zustand": "^5.0.14"
   },

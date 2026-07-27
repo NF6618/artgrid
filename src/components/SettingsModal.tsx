@@ -19,22 +19,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [hasChanges, setHasChanges] = useState(false);
 
-  const { theme, defaultView, autoWatch, compactMode, importMode, vaults, updateSettings, removeVault } = useSettingsStore();
+  const { theme, defaultView, autoWatch, compactMode, importMode, enableAiModels, vaults, updateSettings, removeVault } = useSettingsStore();
 
   const [settings, setSettings] = useState<Partial<AppSettings>>({
     theme,
     defaultView,
     autoWatch,
     compactMode,
-    importMode
+    importMode,
+    enableAiModels
   });
 
   useEffect(() => {
     if (visible) {
-      setSettings({ theme, defaultView, autoWatch, compactMode, importMode });
+      setSettings({ theme, defaultView, autoWatch, compactMode, importMode, enableAiModels });
       setHasChanges(false);
     }
-  }, [visible, theme, defaultView, autoWatch, compactMode, importMode]);
+  }, [visible, theme, defaultView, autoWatch, compactMode, importMode, enableAiModels]);
 
   if (!visible) return null;
 
@@ -204,6 +205,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Advanced Features
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.enableAiModels ?? true} 
+                        onChange={(e) => { setSettings({...settings, enableAiModels: e.target.checked}); setHasChanges(true); }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 500 }}>Enable AI Models</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Allow downloading models for Background Removal and Upscaling locally in browser</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
               </div>
             )}
 
