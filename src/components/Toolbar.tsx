@@ -91,7 +91,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           value={localSearch}
           onChange={(e) => handleSearchInput(e.target.value)}
         />
-        <span className="search-bar__shortcut">⌘K</span>
       </div>
 
       <div className="toolbar__spacer" />

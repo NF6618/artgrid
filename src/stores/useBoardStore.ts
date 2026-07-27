@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { Board } from '../types/board';
-import { TLRecord } from 'tldraw';
+import { ArtGridNode } from '../features/board/engine/types';
 
 interface BoardState {
   boards: Board[];
@@ -10,7 +10,7 @@ interface BoardState {
 
   loadBoards: () => Promise<void>;
   createBoard: (title: string) => Promise<void>;
-  updateBoardNodes: (boardId: string, nodes: TLRecord[]) => Promise<void>;
+  updateBoardNodes: (boardId: string, nodes: ArtGridNode[]) => Promise<void>;
   renameBoard: (boardId: string, newTitle: string) => Promise<void>;
   deleteBoard: (boardId: string) => Promise<void>;
   setActiveBoard: (boardId: string | null) => void;
@@ -56,7 +56,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   // ── Update Nodes (persist) ──────────────────────────────────
-  updateBoardNodes: async (boardId: string, nodes: TLRecord[]) => {
+  updateBoardNodes: async (boardId: string, nodes: ArtGridNode[]) => {
     set(state => ({
       boards: state.boards.map(b => (b.id === boardId ? { ...b, nodes } : b)),
     }));

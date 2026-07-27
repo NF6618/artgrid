@@ -23,13 +23,7 @@ export interface Asset {
   trashed?: boolean;
 }
 
-// Procedural gradient thumbnails based on palette
-const generateGradient = (palette: string[] | undefined): string => {
-  if (!palette || palette.length < 2) return '#333';
-  const stops = palette.map((c, i) => `${c} ${(i / (palette.length - 1)) * 100}%`).join(', ');
-  const angle = Math.floor(Math.random() * 360);
-  return `linear-gradient(${angle}deg, ${stops})`;
-};
+
 
 interface GalleryProps {
   assets: Asset[];
@@ -397,9 +391,7 @@ export const Gallery: React.FC<GalleryProps> = ({
         <div className={`gallery__layout--${viewMode}`}>
           {assets.map((asset) => {
             const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
-            const bgGradient = generateGradient(asset.palette);
-            const aspectRatios = ['3/4', '4/3', '1/1', '3/2', '2/3', '16/9', '4/5'];
-            const aspectRatio = aspectRatios[parseInt(asset.id) % aspectRatios.length];
+            const aspectRatio = (asset.width && asset.height) ? `${asset.width} / ${asset.height}` : '4/3';
 
             return (
               <div
@@ -414,7 +406,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                 <div
                   className="gallery__card-image"
                   style={{
-                    background: bgGradient,
+                    background: 'var(--bg-secondary)',
                     aspectRatio,
                     position: 'relative',
                     overflow: 'hidden',

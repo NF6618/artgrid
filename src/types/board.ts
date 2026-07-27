@@ -67,12 +67,12 @@ export interface BoardNode {
   };
 }
 
-import { TLRecord } from 'tldraw';
+import { ArtGridNode } from '../features/board/engine/types';
 
 export interface Board {
   id: string;
   title: string;
-  nodes: TLRecord[];
+  nodes: ArtGridNode[] | any[];
   createdAt: number;
   updatedAt: number;
 }

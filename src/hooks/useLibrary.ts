@@ -68,8 +68,12 @@ export function useLibrary() {
   };
 
 
-  const importFiles = async (explicitPaths?: string[]) => {
+  const importFiles = async (explicitPaths?: string[], targetVaultPath?: string) => {
     try {
+      if (targetVaultPath && targetVaultPath !== vaultPath) {
+        await loadVault(targetVaultPath);
+      }
+
       let files: string[] = [];
       if (explicitPaths && explicitPaths.length > 0) {
         files = explicitPaths;
@@ -78,7 +82,7 @@ export function useLibrary() {
           multiple: true,
           filters: [{
             name: 'Media & Documents',
-            extensions: ['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'pdf', 'txt', 'md']
+            extensions: ['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'pdf', 'txt', 'md', 'docx', 'doc']
           }]
         });
 

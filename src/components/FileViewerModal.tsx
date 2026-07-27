@@ -10,8 +10,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 
 interface FileViewerModalProps {
   asset: Asset | null;
+  allAssets?: Asset[];
   visible: boolean;
   onClose: () => void;
+  onSelectAsset?: (asset: Asset) => void;
   onAssetsUpdated?: () => void;
 }
 
@@ -29,7 +31,14 @@ const renderFormattedMarkdown = (text: string) => {
   });
 };
 
-export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible, onClose, onAssetsUpdated }) => {
+export const FileViewerModal: React.FC<FileViewerModalProps> = ({ 
+  asset, 
+  allAssets = [], 
+  visible, 
+  onClose, 
+  onSelectAsset,
+  onAssetsUpdated 
+}) => {
   const { vaultPath } = useSettingsStore();
 
   const [textContent, setTextContent] = useState<string | null>(null);
@@ -56,6 +65,11 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
   const [pdfExtractedText, setPdfExtractedText] = useState<string | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
 
+  // PDF Crop Selection Tool state
+  const [isCropToolActive, setIsCropToolActive] = useState(false);
+  const [cropBox, setCropBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const [isDrawingCrop, setIsDrawingCrop] = useState(false);
+
   // Format & URL Resolution
   const ext = (asset?.filename || (asset as any)?.filepath || asset?.title || '').split('.').pop()?.toLowerCase() || '';
 
@@ -71,11 +85,16 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
 
   const getResolvedUrl = (): string => {
     if (!asset) return '';
-    let rawUrl = asset.url || (asset as any).filepath || '';
+    const rawUrl = asset.url || (asset as any).filepath || '';
     
-    // Web URL
-    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
-      if (!rawUrl.includes('localhost')) return rawUrl;
+    // If rawUrl is already a converted protocol URL (http://, https://, asset://, data:)
+    if (
+      rawUrl.startsWith('http://') || 
+      rawUrl.startsWith('https://') || 
+      rawUrl.startsWith('asset:') || 
+      rawUrl.startsWith('data:')
+    ) {
+      return rawUrl;
     }
 
     // Strip cache busting parameter if present for path calculations
@@ -89,13 +108,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
       absPath = `${cleanVault}/${cleanRel}`;
     }
 
-    if (absPath.includes(':') || absPath.startsWith('/') || absPath.startsWith('\\')) {
-      return convertFileSrc(absPath) + `?t=${Date.now()}`;
-    }
-
-    return rawUrl.startsWith('asset:') || rawUrl.startsWith('http')
-      ? rawUrl
-      : convertFileSrc(rawUrl);
+    return convertFileSrc(absPath);
   };
 
   const resolvedUrl = getResolvedUrl();
@@ -225,37 +238,152 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
     }
   };
 
+  // Asset Pagination
+  const currentAssetIndex = asset ? allAssets.findIndex(a => a.id === asset.id) : -1;
+
+  const handlePrevMediaAsset = (e?: React.MouseEvent) => {
+    if (e) { e.stopPropagation(); e.preventDefault(); }
+    if (currentAssetIndex > 0 && onSelectAsset) {
+      onSelectAsset(allAssets[currentAssetIndex - 1]);
+    }
+  };
+
+  const handleNextMediaAsset = (e?: React.MouseEvent) => {
+    if (e) { e.stopPropagation(); e.preventDefault(); }
+    if (currentAssetIndex >= 0 && currentAssetIndex < allAssets.length - 1 && onSelectAsset) {
+      onSelectAsset(allAssets[currentAssetIndex + 1]);
+    }
+  };
+
+  // PDF Crop Selection Tool Handlers
+  const handlePdfCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isCropToolActive) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setIsDrawingCrop(true);
+    setCropBox({ startX: x, startY: y, endX: x, endY: y });
+  };
+
+  const handlePdfCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isCropToolActive || !isDrawingCrop || !cropBox) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const endX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const endY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    setCropBox(prev => prev ? { ...prev, endX, endY } : null);
+  };
+
+  const handlePdfCanvasMouseUp = (e: React.MouseEvent) => {
+    if (!isCropToolActive) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setIsDrawingCrop(false);
+  };
+
+  const handleExtractCroppedPdfRegion = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!pdfCanvasRef.current || !cropBox) return;
+
+    const sourceCanvas = pdfCanvasRef.current;
+    const rect = sourceCanvas.getBoundingClientRect();
+    const scaleX = sourceCanvas.width / rect.width;
+    const scaleY = sourceCanvas.height / rect.height;
+
+    const x = Math.min(cropBox.startX, cropBox.endX) * scaleX;
+    const y = Math.min(cropBox.startY, cropBox.endY) * scaleY;
+    const w = Math.abs(cropBox.endX - cropBox.startX) * scaleX;
+    const h = Math.abs(cropBox.endY - cropBox.startY) * scaleY;
+
+    if (w < 10 || h < 10) {
+      alert("Please drag a larger selection box over the region you want to extract.");
+      return;
+    }
+
+    const destCanvas = document.createElement('canvas');
+    destCanvas.width = w;
+    destCanvas.height = h;
+    const ctx = destCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(sourceCanvas, x, y, w, h, 0, 0, w, h);
+    const dataUrl = destCanvas.toDataURL('image/png');
+
+    try {
+      await invoke('import_from_url', { url: dataUrl });
+      alert("Cropped PDF section extracted & imported into library as a new asset!");
+      setCropBox(null);
+      setIsCropToolActive(false);
+      if (onAssetsUpdated) onAssetsUpdated();
+    } catch (err) {
+      console.error("Failed to extract cropped PDF region:", err);
+    }
+  };
+
   return (
     <div style={{
       position: 'fixed',
       inset: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.92)',
+      backgroundColor: 'rgba(0, 0, 0, 0.94)',
       display: 'flex',
       flexDirection: 'column',
       zIndex: 2000,
-      backdropFilter: 'blur(12px)',
+      backdropFilter: 'blur(16px)',
       fontFamily: 'var(--font-family)'
     }} onClick={onClose}>
       
-      {/* Top Studio Bar */}
+      {/* Top Studio Pop-out Header Bar */}
       <div 
         style={{
           padding: '12px 24px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          background: 'rgba(16,16,24,0.95)',
+          background: 'rgba(16,16,24,0.96)',
           borderBottom: '1px solid var(--border-subtle)',
           color: 'white',
           zIndex: 2001
         }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{asset.title}</h3>
-          <span style={{ fontSize: '0.75rem', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: 4, color: 'var(--text-muted)' }}>
-            {asset.filename} • {asset.size}
-          </span>
+        {/* Media Asset Info & Pagination Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {allAssets.length > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 6 }}>
+              <button 
+                className="toolbar__btn" 
+                onClick={handlePrevMediaAsset} 
+                disabled={currentAssetIndex <= 0}
+                title="Previous Asset"
+                style={{ width: 24, height: 24, minWidth: 24, opacity: currentAssetIndex > 0 ? 1 : 0.3 }}
+              >
+                ◀
+              </button>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', minWidth: 60, textAlign: 'center' }}>
+                {currentAssetIndex + 1} of {allAssets.length}
+              </span>
+              <button 
+                className="toolbar__btn" 
+                onClick={handleNextMediaAsset} 
+                disabled={currentAssetIndex >= allAssets.length - 1}
+                title="Next Asset"
+                style={{ width: 24, height: 24, minWidth: 24, opacity: currentAssetIndex < allAssets.length - 1 ? 1 : 0.3 }}
+              >
+                ▶
+              </button>
+            </div>
+          )}
+
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{asset.title}</h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              {asset.filename} • {asset.size}
+            </span>
+          </div>
         </div>
 
         {/* Action Controls for Images & PDFs */}
@@ -264,14 +392,14 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
             <>
               <button 
                 className={`btn ${showEditStudio ? 'btn--primary' : 'btn--secondary'}`} 
-                onClick={() => setShowEditStudio(!showEditStudio)}
+                onClick={(e) => { e.stopPropagation(); setShowEditStudio(!showEditStudio); }}
                 style={{ padding: '6px 14px', fontSize: '12px' }}
               >
                 🎨 Image Studio Tools
               </button>
               <button 
                 className="btn btn--primary"
-                onClick={handleSaveEditedImageAsAsset}
+                onClick={(e) => { e.stopPropagation(); handleSaveEditedImageAsAsset(); }}
                 style={{ padding: '6px 14px', fontSize: '12px' }}
               >
                 💾 Save Copy to Library
@@ -282,17 +410,40 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
           {isPdf && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 6 }}>
-                <button className="toolbar__btn" onClick={() => setPdfPageNum(p => Math.max(1, p - 1))}>◀</button>
+                <button 
+                  className="toolbar__btn" 
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setPdfPageNum(p => Math.max(1, p - 1)); }}
+                  title="Previous Page"
+                >
+                  ◀
+                </button>
                 <span style={{ fontSize: '12px', minWidth: 60, textAlign: 'center' }}>Page {pdfPageNum} / {pdfTotalPages}</span>
-                <button className="toolbar__btn" onClick={() => setPdfPageNum(p => Math.min(pdfTotalPages, p + 1))}>▶</button>
+                <button 
+                  className="toolbar__btn" 
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setPdfPageNum(p => Math.min(pdfTotalPages, p + 1)); }}
+                  title="Next Page"
+                >
+                  ▶
+                </button>
               </div>
-              <button className="toolbar__btn" title="Zoom Out" onClick={() => setPdfScale(s => Math.max(0.5, s - 0.2))}>-</button>
+
+              <button className="toolbar__btn" title="Zoom Out" onClick={(e) => { e.stopPropagation(); setPdfScale(s => Math.max(0.5, s - 0.2)); }}>-</button>
               <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{Math.round(pdfScale * 100)}%</span>
-              <button className="toolbar__btn" title="Zoom In" onClick={() => setPdfScale(s => Math.min(3.0, s + 0.2))}>+</button>
+              <button className="toolbar__btn" title="Zoom In" onClick={(e) => { e.stopPropagation(); setPdfScale(s => Math.min(3.0, s + 0.2)); }}>+</button>
+
+              <button 
+                className={`btn ${isCropToolActive ? 'btn--primary' : 'btn--secondary'}`} 
+                onClick={(e) => { e.stopPropagation(); setIsCropToolActive(!isCropToolActive); setCropBox(null); }}
+                style={{ padding: '6px 12px', fontSize: '12px' }}
+                title="Select a region on page to extract"
+              >
+                ✂️ Crop Region
+              </button>
               
               <button 
                 className="btn btn--secondary" 
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (pdfExtractedText) {
                     navigator.clipboard.writeText(pdfExtractedText);
                     alert('Page text copied to clipboard!');
@@ -301,12 +452,12 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
                 style={{ padding: '6px 12px', fontSize: '12px' }}
                 title="Copy text content of current page"
               >
-                📝 Copy Page Text
+                📝 Copy Text
               </button>
 
               <button 
                 className="btn btn--primary" 
-                onClick={handleSnapshotPdfPage}
+                onClick={(e) => { e.stopPropagation(); handleSnapshotPdfPage(); }}
                 style={{ padding: '6px 14px', fontSize: '12px' }}
               >
                 📷 Snapshot Page to Asset
@@ -377,8 +528,51 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ asset, visible
               )}
             </div>
           ) : isPdf ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', overflow: 'auto', maxHeight: '100%' }}>
-              <canvas ref={pdfCanvasRef} style={{ boxShadow: '0 10px 40px rgba(0,0,0,0.8)', background: 'white', borderRadius: 4 }} />
+            /* PDF Book / Flipbook Container */
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', overflow: 'auto', maxHeight: '100%', position: 'relative' }}>
+              <div 
+                style={{ 
+                  position: 'relative', 
+                  boxShadow: '0 20px 60px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.5)', 
+                  background: '#ffffff', 
+                  borderRadius: 6,
+                  padding: 8,
+                  border: '1px solid #d0d0d0',
+                  cursor: isCropToolActive ? 'crosshair' : 'default'
+                }}
+                onMouseDown={handlePdfCanvasMouseDown}
+                onMouseMove={handlePdfCanvasMouseMove}
+                onMouseUp={handlePdfCanvasMouseUp}
+              >
+                <canvas ref={pdfCanvasRef} style={{ display: 'block', borderRadius: 4 }} />
+
+                {/* PDF Crop Selection Marquee Box */}
+                {isCropToolActive && cropBox && (
+                  <div 
+                    style={{
+                      position: 'absolute',
+                      left: Math.min(cropBox.startX, cropBox.endX) + 8,
+                      top: Math.min(cropBox.startY, cropBox.endY) + 8,
+                      width: Math.abs(cropBox.endX - cropBox.startX),
+                      height: Math.abs(cropBox.endY - cropBox.startY),
+                      border: '2px dashed var(--accent-primary)',
+                      background: 'rgba(124, 107, 240, 0.2)',
+                      pointerEvents: 'none'
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Extract Crop Region Action Button */}
+              {isCropToolActive && cropBox && Math.abs(cropBox.endX - cropBox.startX) > 10 && (
+                <button 
+                  className="btn btn--primary" 
+                  onClick={handleExtractCroppedPdfRegion}
+                  style={{ marginTop: 16, padding: '8px 16px', fontSize: '13px', zIndex: 100 }}
+                >
+                  ✂️ Extract Cropped Selection as Asset
+                </button>
+              )}
             </div>
           ) : isDocx ? (
             <div 

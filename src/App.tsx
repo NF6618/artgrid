@@ -16,6 +16,7 @@ import { useMetadataStore } from './stores/useMetadataStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
 import { Titlebar } from './components/Titlebar';
+import { ImportVaultModal } from './components/ImportVaultModal';
 
 type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 type ViewMode = 'grid' | 'list' | 'board';
@@ -282,6 +283,9 @@ const App: React.FC = () => {
     }
   };
 
+  // Import Target Vault Modal state
+  const [showImportVaultModal, setShowImportVaultModal] = useState(false);
+
   // Get title based on active view
   const getViewTitle = () => {
     switch (activeView) {
@@ -319,7 +323,7 @@ const App: React.FC = () => {
           onCollectionChange={handleNavCollectionChange}
           activeTag={activeTag}
           onTagChange={handleNavTagChange}
-          onImport={importFiles}
+          onImport={() => setShowImportVaultModal(true)}
           onSettings={() => setShowSettings(true)}
           stats={{
             library: assets.length,
@@ -654,11 +658,22 @@ const App: React.FC = () => {
         }}
       />
 
-      {/* File Viewer Modal */}
+      {/* Import Target Vault Selection Modal */}
+      <ImportVaultModal
+        visible={showImportVaultModal}
+        onClose={() => setShowImportVaultModal(false)}
+        onConfirmImport={(targetVault) => {
+          importFiles(undefined, targetVault);
+        }}
+      />
+
+      {/* File Viewer Pop-out Modal */}
       <FileViewerModal
         asset={previewAsset}
+        allAssets={filteredAssets}
         visible={previewAsset !== null}
         onClose={() => setPreviewAsset(null)}
+        onSelectAsset={setPreviewAsset}
         onAssetsUpdated={loadAssets}
       />
     </>

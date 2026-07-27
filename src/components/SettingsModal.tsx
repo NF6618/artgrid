@@ -223,24 +223,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                     {[
-                      { name: 'Dark Obsidian', bg: '#0a0a0f', sec: '#16161f', accent: '#7c6bf0', text: '#e8e8f0' },
-                      { name: 'Midnight Blue', bg: '#0b132b', sec: '#1c2541', accent: '#4ecdc4', text: '#e0e6ed' },
-                      { name: 'Cyberpunk Neon', bg: '#0d021a', sec: '#1f0a38', accent: '#ff007f', text: '#f3e8ff' },
-                      { name: 'Emerald Dark', bg: '#061a14', sec: '#0e2e24', accent: '#10b981', text: '#e6f7f2' },
-                      { name: 'Light Studio', bg: '#f8fafc', sec: '#ffffff', accent: '#2563eb', text: '#0f172a' },
+                      { name: 'Dark Obsidian', bg: '#0a0a0f', sec: '#16161f', accent: '#7c6bf0', text: '#e8e8f0', sBg: '#0e0e17', sText: '#b0b0cc' },
+                      { name: 'Midnight Blue', bg: '#0b132b', sec: '#1c2541', accent: '#4ecdc4', text: '#e0e6ed', sBg: '#0f172a', sText: '#94a3b8' },
+                      { name: 'Cyberpunk Neon', bg: '#0d021a', sec: '#1f0a38', accent: '#ff007f', text: '#f3e8ff', sBg: '#120324', sText: '#d8b4fe' },
+                      { name: 'Emerald Dark', bg: '#061a14', sec: '#0e2e24', accent: '#10b981', text: '#e6f7f2', sBg: '#0a231b', sText: '#a7f3d0' },
+                      { name: 'Light Studio', bg: '#f8fafc', sec: '#ffffff', accent: '#2563eb', text: '#0f172a', sBg: '#ffffff', sText: '#334155' },
                     ].map(preset => (
                       <div 
                         key={preset.name}
                         onClick={() => {
+                          const isLight = preset.name.startsWith('Light');
                           setSettings({
                             ...settings,
                             bgBaseColor: preset.bg,
                             bgSecondaryColor: preset.sec,
                             accentColor: preset.accent,
                             textPrimaryColor: preset.text,
-                            theme: preset.name.startsWith('Light') ? 'light' : 'dark'
+                            sidebarBgColor: preset.sBg,
+                            sidebarTextColor: preset.sText,
+                            theme: isLight ? 'light' : 'dark'
                           });
                           setHasChanges(true);
+
+                          // Live DOM update
+                          const root = document.documentElement;
+                          root.style.setProperty('--bg-base', preset.bg);
+                          root.style.setProperty('--bg-secondary', preset.sec);
+                          root.style.setProperty('--accent-primary', preset.accent);
+                          root.style.setProperty('--text-primary', preset.text);
+                          root.style.setProperty('--sidebar-bg', preset.sBg);
+                          root.style.setProperty('--sidebar-text', preset.sText);
+                          root.setAttribute('data-theme', isLight ? 'light' : 'dark');
                         }}
                         style={{
                           padding: 10,
@@ -257,6 +270,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div style={{ display: 'flex', gap: 4 }}>
                           <div style={{ width: 12, height: 12, borderRadius: '50%', background: preset.accent }} />
                           <div style={{ width: 12, height: 12, borderRadius: '50%', background: preset.sec }} />
+                          <div style={{ width: 12, height: 12, borderRadius: '50%', background: preset.sBg, border: '1px solid rgba(255,255,255,0.2)' }} />
                         </div>
                       </div>
                     ))}
