@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { IconEye, IconMoreHorizontal, IconStarFilled, IconStar, IconUpload, IconImage } from './Icons';
+import { IconEye, IconMoreHorizontal, IconStarFilled, IconStar, IconUpload, IconImage, IconTrash } from './Icons';
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Set up pdf.js worker
@@ -112,6 +112,19 @@ export const Gallery: React.FC<GalleryProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
+  // Right-click context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    asset: Asset;
+  } | null>(null);
+
+  useEffect(() => {
+    const handleCloseContextMenu = () => setContextMenu(null);
+    window.addEventListener('click', handleCloseContextMenu);
+    return () => window.removeEventListener('click', handleCloseContextMenu);
+  }, []);
+
   // Marquee selection box state
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
@@ -413,6 +426,12 @@ export const Gallery: React.FC<GalleryProps> = ({
                 className={`gallery__list-row ${isSelected ? 'gallery__card--selected' : ''}`}
                 onClick={(e) => handleCardClick(e, asset)}
                 onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelectAsset(asset);
+                  setContextMenu({ x: e.clientX, y: e.clientY, asset });
+                }}
                 draggable
                 onDragStart={(e) => handleDragStart(e, asset)}
                 style={{
@@ -499,6 +518,12 @@ export const Gallery: React.FC<GalleryProps> = ({
                 className={`gallery__card ${isSelected ? 'gallery__card--selected' : ''}`}
                 onClick={(e) => handleCardClick(e, asset)}
                 onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelectAsset(asset);
+                  setContextMenu({ x: e.clientX, y: e.clientY, asset });
+                }}
                 draggable
                 onDragStart={(e) => handleDragStart(e, asset)}
               >
@@ -584,6 +609,99 @@ export const Gallery: React.FC<GalleryProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Right-click Context Menu */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            left: Math.min(contextMenu.x, window.innerWidth - 220),
+            top: Math.min(contextMenu.y, window.innerHeight - 260),
+            width: 210,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 8,
+            padding: 6,
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.7)',
+            zIndex: 9999,
+            backdropFilter: 'blur(16px)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            userSelect: 'none',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 8px', textTransform: 'uppercase' }}>
+            Asset Actions
+          </div>
+
+          <button
+            className="btn btn--secondary"
+            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={() => {
+              onPreviewAsset?.(contextMenu.asset);
+              setContextMenu(null);
+            }}
+          >
+            <IconEye size={14} /> Open Media Viewer
+          </button>
+
+          <button
+            className="btn btn--secondary"
+            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={() => {
+              onToggleFavorite(contextMenu.asset.id);
+              setContextMenu(null);
+            }}
+          >
+            <IconStar size={14} /> {contextMenu.asset.favorite ? 'Unfavorite' : 'Mark as Favorite'}
+          </button>
+
+          <button
+            className="btn btn--secondary"
+            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={async () => {
+              const name = prompt('New title for asset:', contextMenu.asset.title);
+              if (name && name.trim()) {
+                const { invoke } = await import('@tauri-apps/api/core');
+                const ext = contextMenu.asset.filename.includes('.') ? '.' + contextMenu.asset.filename.split('.').pop() : '';
+                await invoke('rename_asset', { id: contextMenu.asset.id, newTitle: name.trim(), newFilename: name.trim() + ext });
+                onAssetsUpdated?.();
+              }
+              setContextMenu(null);
+            }}
+          >
+            ✏️ Rename Asset...
+          </button>
+
+          <button
+            className="btn btn--secondary"
+            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={() => {
+              onImport?.();
+              setContextMenu(null);
+            }}
+          >
+            <IconUpload size={14} /> Import Media Files...
+          </button>
+
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+
+          <button
+            className="btn btn--secondary"
+            style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', color: '#f06b8e', borderColor: 'rgba(240, 107, 142, 0.3)', display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={async () => {
+              const { invoke } = await import('@tauri-apps/api/core');
+              await invoke('trash_asset', { id: contextMenu.asset.id, trashed: true });
+              onAssetsUpdated?.();
+              setContextMenu(null);
+            }}
+          >
+            <IconTrash size={14} /> Move to Trash
+          </button>
         </div>
       )}
     </div>

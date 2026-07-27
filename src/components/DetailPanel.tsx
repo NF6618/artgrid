@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useMetadataStore } from '../stores/useMetadataStore';
+import { useMetadataStore, Collection } from '../stores/useMetadataStore';
 import { Asset } from './Gallery';
 import { IconClose, IconPlus, IconArchive, IconTrash, IconMaximize, IconPencil } from './Icons';
 import { invoke } from '@tauri-apps/api/core';
+import { analyzePalette } from '../utils/colorTheory';
 
 interface DetailPanelProps {
   asset: Asset | null;
@@ -12,9 +13,14 @@ interface DetailPanelProps {
 }
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClose, onAssetsUpdated }) => {
-  const { addTagToAsset, removeTagFromAsset, collections, addAssetToCollection, removeAssetFromCollection } = useMetadataStore();
+  const { addTagToAsset, removeTagFromAsset, collections, createCollection, addAssetToCollection, removeAssetFromCollection } = useMetadataStore();
+  
   const [newTag, setNewTag] = useState('');
   const [isAddingTag, setIsAddingTag] = useState(false);
+
+  // Inline collection creation state
+  const [isCreatingCol, setIsCreatingCol] = useState(false);
+  const [newColName, setNewColName] = useState('');
 
   // Notes state & debouncing
   const [notesText, setNotesText] = useState('');
@@ -27,7 +33,6 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
   useEffect(() => {
     if (asset) {
       setNotesText(asset.notes || '');
-      // Derive editable name from title (or filename without extension)
       const nameWithoutExt = asset.title || asset.filename.replace(/\.[^.]+$/, '');
       setEditName(nameWithoutExt);
       setIsEditingName(false);
@@ -67,7 +72,16 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
     if (onAssetsUpdated) onAssetsUpdated();
   };
 
-  // Unified save: updates both title and filename (name + original extension)
+  const handleCreateCollection = async () => {
+    if (newColName.trim() && asset) {
+      const created = await createCollection(newColName.trim(), '#7c6bf0');
+      await addAssetToCollection(asset.id, created.id);
+      setNewColName('');
+      setIsCreatingCol(false);
+      if (onAssetsUpdated) onAssetsUpdated();
+    }
+  };
+
   const handleSaveName = async () => {
     if (!asset || !editName.trim()) return;
     const originalExt = asset.filename.includes('.') 
@@ -131,11 +145,35 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
     );
   }
 
-  const generateGradient = (palette?: string[]): string => {
-    if (!palette || palette.length < 2) return (palette && palette[0]) || '#333';
-    const stops = palette.map((c, i) => `${c} ${(i / (palette.length - 1)) * 100}%`).join(', ');
-    return `linear-gradient(135deg, ${stops})`;
+  const isPDF = asset.type === 'application/pdf' || asset.filename.toLowerCase().endsWith('.pdf');
+
+  const getReadableFileType = (type: string, filename: string): string => {
+    if (type === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) return 'PDF Document';
+    if (type.includes('png')) return 'PNG Image';
+    if (type.includes('jpeg') || type.includes('jpg')) return 'JPEG Photo';
+    if (type.includes('webp')) return 'WebP Image';
+    if (type.includes('gif')) return 'Animated GIF';
+    if (type.includes('plain') || filename.toLowerCase().endsWith('.txt')) return 'Plain Text Note';
+    if (filename.toLowerCase().endsWith('.md')) return 'Markdown Document';
+    return type.toUpperCase();
   };
+
+  const colorTheory = analyzePalette(asset.palette);
+
+  // Flatten nested collections for select dropdown with depth indentation
+  const flattenCollections = (cols: Collection[], depth = 0): { id: string; name: string; label: string }[] => {
+    let result: { id: string; name: string; label: string }[] = [];
+    cols.forEach(c => {
+      const indent = '— '.repeat(depth);
+      result.push({ id: c.id, name: c.name, label: `${indent}${c.name}` });
+      if (c.children && c.children.length > 0) {
+        result = result.concat(flattenCollections(c.children, depth + 1));
+      }
+    });
+    return result;
+  };
+
+  const flatCollectionList = flattenCollections(collections);
 
   return (
     <div className="detail-panel">
@@ -171,38 +209,64 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         </div>
       </div>
 
-      {/* Preview */}
+      {/* Media / PDF Preview Banner */}
       <div 
         className="detail-panel__preview" 
         onClick={() => (window as any).__artgridOpenPreviewAsset?.(asset)}
         style={{ cursor: 'pointer' }}
-        title="Click to Open Media Viewer"
+        title="Click to Open Full Media Viewer"
       >
-        <div
-          style={{
-            width: '100%',
-            aspectRatio: `${asset.width || 4}/${asset.height || 3}`,
-            maxHeight: 200,
-            background: generateGradient(asset.palette),
-            borderRadius: 'var(--radius-md)',
-            position: 'relative',
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <img src={asset.url} alt={asset.title} style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', objectFit: 'contain' }} />
-        </div>
+        {isPDF ? (
+          <div
+            style={{
+              width: '100%',
+              height: 180,
+              background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid rgba(124, 107, 240, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              padding: 16,
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontSize: '32px' }}>📄</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#ffffff' }}>
+              {asset.title}
+            </div>
+            <div style={{ fontSize: '10px', color: '#a5b4fc', background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 4 }}>
+              PDF Document
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              aspectRatio: `${asset.width || 4}/${asset.height || 3}`,
+              maxHeight: 200,
+              background: 'var(--bg-tertiary)',
+              borderRadius: 'var(--radius-md)',
+              position: 'relative',
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <img src={asset.url} alt={asset.title} style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+        )}
       </div>
 
-      {/* Scrollable content */}
+      {/* Scrollable Content */}
       <div className="detail-panel__content">
-        {/* Info & Renaming Section */}
+        {/* 1. Basic Metadata Section */}
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Info</div>
           
-          {/* Unified Name Field (updates both title + filename) */}
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Name</span>
             {isEditingName ? (
@@ -220,95 +284,194 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
                 <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={handleSaveName}>Save</button>
               </div>
             ) : (
-              <span className="detail-panel__field-value" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => setIsEditingName(true)} title="Click to rename (updates title + filename)">
+              <span className="detail-panel__field-value" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => setIsEditingName(true)} title="Click to rename">
                 {asset.title} <IconPencil size={10} />
               </span>
             )}
           </div>
 
-          {/* Read-only filename metadata */}
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Filename</span>
             <span className="detail-panel__field-value" style={{ opacity: 0.7, fontSize: '11px' }}>{asset.filename}</span>
           </div>
 
           <div className="detail-panel__field">
-            <span className="detail-panel__field-label">Type</span>
-            <span className="detail-panel__field-value">{asset.type}</span>
+            <span className="detail-panel__field-label">File Type</span>
+            <span className="detail-panel__field-value" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>
+              {getReadableFileType(asset.type, asset.filename)}
+            </span>
           </div>
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Size</span>
             <span className="detail-panel__field-value">{asset.size}</span>
           </div>
-          <div className="detail-panel__field">
-            <span className="detail-panel__field-label">Dimensions</span>
-            <span className="detail-panel__field-value">{asset.width} × {asset.height}</span>
-          </div>
+          {!isPDF && (
+            <div className="detail-panel__field">
+              <span className="detail-panel__field-label">Dimensions</span>
+              <span className="detail-panel__field-value">{asset.width} × {asset.height}</span>
+            </div>
+          )}
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Added</span>
             <span className="detail-panel__field-value">{asset.dateAdded}</span>
           </div>
         </div>
 
-        {/* Color Profile Swatches */}
+        {/* 2. Color Theory Palette Breakdown */}
         {asset.palette && asset.palette.length > 0 && (
           <div className="detail-panel__section">
-            <div className="detail-panel__section-title">Color Palette</div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {asset.palette.map((c, i) => (
-                <div 
-                  key={i} 
-                  title={c}
-                  style={{ 
-                    width: 24, 
-                    height: 24, 
-                    borderRadius: 4, 
-                    background: c, 
-                    border: '1px solid var(--border-subtle)',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                    cursor: 'pointer'
-                  }} 
-                  onClick={() => navigator.clipboard.writeText(c)}
-                />
+            <div className="detail-panel__section-title">Color Theory Analysis</div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Left-to-Right Color Harmony Bar */}
+              <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', width: '100%', border: '1px solid var(--border-subtle)' }}>
+                {asset.palette.map((c, i) => (
+                  <div key={i} style={{ flex: 1, background: c }} title={c} />
+                ))}
+              </div>
+
+              {/* Color Tiers */}
+              {[
+                { title: 'Dominant Colors', colors: colorTheory.dominant },
+                { title: 'Primary', colors: colorTheory.primary },
+                { title: 'Secondary', colors: colorTheory.secondary },
+                { title: 'Accents', colors: colorTheory.accents },
+              ].map(tier => (
+                tier.colors.length > 0 && (
+                  <div key={tier.title} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', background: 'var(--bg-secondary)', padding: '4px 8px', borderRadius: 4 }}>
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{tier.title}</span>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {tier.colors.map((c, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div
+                            style={{ width: 14, height: 14, borderRadius: 3, background: c.hex, border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer' }}
+                            title={`${c.hex} (${c.family} - ${c.percentage}%)`}
+                            onClick={() => navigator.clipboard.writeText(c.hex)}
+                          />
+                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{c.family}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
               ))}
             </div>
           </div>
         )}
 
-        {/* Tags */}
+        {/* 3. Tags & Collections Section */}
         <div className="detail-panel__section">
-          <div className="detail-panel__section-title">Tags</div>
-          <div className="tags">
-            {(asset.tags || []).map(tag => (
-              <span key={tag} className="tag">
-                {tag}
-                <span 
-                  style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
-                  onClick={() => handleRemoveTag(tag)}
-                >
-                  ×
+          <div className="detail-panel__section-title">Tags & Categories</div>
+          
+          {/* Tags List */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', fontWeight: 600 }}>
+              Tags
+            </div>
+            <div className="tags">
+              {(asset.tags || []).map(tag => (
+                <span key={tag} className="tag">
+                  {tag}
+                  <span 
+                    style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
+                    onClick={() => handleRemoveTag(tag)}
+                  >
+                    ×
+                  </span>
                 </span>
-              </span>
-            ))}
-            {isAddingTag ? (
-              <input 
-                autoFocus
-                value={newTag}
-                onChange={e => setNewTag(e.target.value)}
-                onBlur={handleAddTag}
-                onKeyDown={e => e.key === 'Enter' && handleAddTag()}
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', width: 80, padding: '2px 4px', fontSize: '10px' }}
-              />
-            ) : (
-              <span className="tag tag--add" onClick={() => setIsAddingTag(true)}>
-                <IconPlus size={10} />
-                Add
-              </span>
+              ))}
+              {isAddingTag ? (
+                <input 
+                  autoFocus
+                  value={newTag}
+                  onChange={e => setNewTag(e.target.value)}
+                  onBlur={handleAddTag}
+                  onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', width: 80, padding: '2px 4px', fontSize: '10px' }}
+                />
+              ) : (
+                <span className="tag tag--add" onClick={() => setIsAddingTag(true)}>
+                  <IconPlus size={10} />
+                  Add Tag
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Collections & Sub-Collections List */}
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', fontWeight: 600 }}>
+              Collections & Sub-Collections
+            </div>
+            <div className="tags">
+              {asset.collections?.map(colId => {
+                 const findName = (cols: Collection[], id: string): string => {
+                   for (const c of cols) {
+                     if (c.id === id) return c.name;
+                     if (c.children) {
+                       const n = findName(c.children, id);
+                       if (n) return `${c.name} > ${n}`;
+                     }
+                   }
+                   return id;
+                 };
+                 const colName = findName(collections, colId);
+                 return (
+                   <span key={colId} className="tag" style={{ background: 'var(--bg-tertiary)' }}>
+                     {colName}
+                     <span 
+                       style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
+                       onClick={async () => {
+                         await removeAssetFromCollection(asset.id, colId);
+                         if (onAssetsUpdated) onAssetsUpdated();
+                       }}
+                     >
+                       ×
+                     </span>
+                   </span>
+                 );
+              })}
+              
+              <select 
+                className="tag tag--add" 
+                style={{ background: 'transparent', border: '1px dashed var(--border-subtle)', outline: 'none', cursor: 'pointer' }}
+                value=""
+                onChange={async (e) => {
+                  if (e.target.value === '__new__') {
+                    setIsCreatingCol(true);
+                  } else if (e.target.value) {
+                    await addAssetToCollection(asset.id, e.target.value);
+                    if (onAssetsUpdated) onAssetsUpdated();
+                  }
+                }}
+              >
+                <option value="" disabled>+ Add Collection</option>
+                {flatCollectionList.map(c => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+                <option value="__new__">+ Create New Collection...</option>
+              </select>
+            </div>
+
+            {/* Inline Collection Creation Input */}
+            {isCreatingCol && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <input
+                  autoFocus
+                  placeholder="Collection name..."
+                  value={newColName}
+                  onChange={e => setNewColName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleCreateCollection()}
+                  style={{ flex: 1, padding: '4px 8px', borderRadius: 4, background: 'var(--bg-secondary)', border: '1px solid var(--accent-primary)', color: '#ffffff', fontSize: '11px' }}
+                />
+                <button className="btn btn--primary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={handleCreateCollection}>Create</button>
+                <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setIsCreatingCol(false)}>✕</button>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Notes (Debounced SQLite Persistence) */}
+        {/* 4. Notes Section (Organized directly BELOW Tags & Collections) */}
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Notes</div>
           <textarea
@@ -317,7 +480,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
             onChange={(e) => handleNotesChange(e.target.value)}
             style={{
               width: '100%',
-              minHeight: 90,
+              minHeight: 110,
               padding: 'var(--space-2)',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-subtle)',
@@ -329,57 +492,6 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
               outline: 'none',
             }}
           />
-        </div>
-
-        {/* Collections */}
-        <div className="detail-panel__section">
-          <div className="detail-panel__section-title">Collections</div>
-          <div className="tags">
-            {asset.collections?.map(colId => {
-               const findName = (cols: any[], id: string): string => {
-                 for (const c of cols) {
-                   if (c.id === id) return c.name;
-                   if (c.children) {
-                     const n = findName(c.children, id);
-                     if (n) return n;
-                   }
-                 }
-                 return id;
-               };
-               const colName = findName(collections, colId);
-               return (
-                 <span key={colId} className="tag" style={{ background: 'var(--bg-tertiary)' }}>
-                   {colName}
-                   <span 
-                     style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
-                     onClick={async () => {
-                       await removeAssetFromCollection(asset.id, colId);
-                       if (onAssetsUpdated) onAssetsUpdated();
-                     }}
-                   >
-                     ×
-                   </span>
-                 </span>
-               );
-            })}
-            
-            <select 
-              className="tag tag--add" 
-              style={{ background: 'transparent', border: '1px dashed var(--border-subtle)', outline: 'none', cursor: 'pointer' }}
-              value=""
-              onChange={async (e) => {
-                if (e.target.value) {
-                  await addAssetToCollection(asset.id, e.target.value);
-                  if (onAssetsUpdated) onAssetsUpdated();
-                }
-              }}
-            >
-              <option value="" disabled>+ Add</option>
-              {collections.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
         </div>
       </div>
     </div>

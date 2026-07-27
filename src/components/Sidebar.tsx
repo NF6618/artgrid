@@ -94,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenVaultModal,
   stats
 }) => {
-  const { collections, tags, createCollection, loadMetadata } = useMetadataStore();
+  const { collections, tags, tagCategoryMap, createCollection, createTag, loadMetadata } = useMetadataStore();
   const { vaults } = useSettingsStore();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -103,6 +103,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [newColName, setNewColName] = useState('');
   const [newColColor, setNewColColor] = useState('#3b82f6');
   const [newColParent, setNewColParent] = useState<string | undefined>(undefined);
+
+  // Tag creation state
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagCategory, setNewTagCategory] = useState('');
+
+  const handleCreateTagSubmit = async () => {
+    if (newTagName.trim()) {
+      await createTag(newTagName.trim(), newTagCategory || undefined);
+      setNewTagName('');
+      setNewTagCategory('');
+      setShowTagModal(false);
+    }
+  };
 
   const activeVaultName = currentVaultPath ? (currentVaultPath.split(/[\\/]/).pop() || 'Vault') : 'Select Vault';
 
@@ -354,26 +368,74 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ))}
             </div>
 
-            {/* Tags */}
-            <div className="sidebar__section-title" style={{ marginTop: 'var(--space-4)' }}>
-              Tags
+            {/* Tags Header + Add Tag Button */}
+            <div className="sidebar__section-title" style={{ marginTop: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: 'var(--space-3)' }}>
+              <span>Tags</span>
+              <button
+                className="toolbar__btn"
+                style={{ width: 20, height: 20, minWidth: 20, padding: 0 }}
+                title="Create New Tag"
+                onClick={() => setShowTagModal(!showTagModal)}
+              >
+                <IconPlus size={12} />
+              </button>
             </div>
-            <div className="collection-tree" style={{ paddingLeft: 'var(--space-2)' }}>
-              {tags.map(tag => (
-                <div 
-                  key={tag.id}
-                  className={`sidebar__item ${activeTag === tag.name ? 'sidebar__item--active' : ''}`}
-                  onClick={() => {
-                    if (onTagChange) {
-                      onTagChange(activeTag === tag.name ? null : tag.name);
-                    }
-                  }}
-                  style={{ paddingLeft: 'var(--space-2)', height: 28 }}
+
+            {/* Tag Creation Popover */}
+            {showTagModal && (
+              <div style={{ padding: '8px 12px', background: 'var(--bg-surface)', borderRadius: 6, margin: '4px 8px', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input 
+                  autoFocus
+                  placeholder="New tag name..."
+                  value={newTagName}
+                  onChange={e => setNewTagName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleCreateTagSubmit()}
+                  style={{ background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '4px 8px', fontSize: '0.8rem' }}
+                />
+                <select
+                  value={newTagCategory}
+                  onChange={e => setNewTagCategory(e.target.value)}
+                  style={{ background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '4px', fontSize: '0.75rem' }}
                 >
-                  <IconTag size={12} className="sidebar__item-icon" />
-                  <span className="sidebar__item-label" style={{ fontSize: '0.8rem', opacity: 0.8 }}>{tag.name}</span>
+                  <option value="">No Category Association</option>
+                  {collections.map(c => (
+                    <option key={c.id} value={c.id}>Category: {c.name}</option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <button className="btn btn--secondary" style={{ padding: '2px 8px', fontSize: '0.75rem' }} onClick={() => setShowTagModal(false)}>Cancel</button>
+                  <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '0.75rem' }} onClick={handleCreateTagSubmit}>Create Tag</button>
                 </div>
-              ))}
+              </div>
+            )}
+
+            <div className="collection-tree" style={{ paddingLeft: 'var(--space-2)' }}>
+              {tags.map(tag => {
+                const assocColId = tagCategoryMap[tag.name];
+                const assocCol = assocColId ? collections.find(c => c.id === assocColId) : null;
+                return (
+                  <div 
+                    key={tag.id}
+                    className={`sidebar__item ${activeTag === tag.name ? 'sidebar__item--active' : ''}`}
+                    onClick={() => {
+                      if (onTagChange) {
+                        onTagChange(activeTag === tag.name ? null : tag.name);
+                      }
+                    }}
+                    style={{ paddingLeft: 'var(--space-2)', height: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                      <IconTag size={12} className="sidebar__item-icon" />
+                      <span className="sidebar__item-label" style={{ fontSize: '0.8rem', opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tag.name}</span>
+                    </div>
+                    {assocCol && (
+                      <span style={{ fontSize: '9px', background: 'var(--bg-tertiary)', color: assocCol.color || 'var(--text-muted)', padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+                        {assocCol.name}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
