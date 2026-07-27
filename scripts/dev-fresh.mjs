@@ -231,9 +231,12 @@ console.log();
 process.env.RUST_LOG = 'artgrid=trace,tauri=info';
 process.env.VERBOSE_LOG = 'true';
 
+const logFile = path.join(os.tmpdir(), 'artgrid-verbose.log');
+try { fs.writeFileSync(logFile, ''); } catch(e) {} // clear log file
+
 if (process.platform === 'win32') {
-  // Spawn separate CMD window titled "ArtGrid — Verbose Dev & Network Log Stream"
-  spawn('cmd.exe', ['/c', 'start', 'ArtGrid — Verbose Dev & Network Log Stream', 'cmd.exe', '/k', 'npm run tauri dev'], {
+  // Spawn separate CMD window (empty title for the start command to prevent parsing errors)
+  spawn('cmd.exe', ['/c', 'start', '""', 'cmd.exe', '/k', 'node', 'scripts/log-viewer.mjs'], {
     cwd: projectRoot,
     detached: true,
     stdio: 'ignore',
@@ -241,12 +244,22 @@ if (process.platform === 'win32') {
   });
 }
 
-// Also run in current terminal window for seamless interaction
+// Run in current terminal window and pipe output to log file
 const child = spawn('npm', ['run', 'tauri', 'dev'], {
   cwd: projectRoot,
-  stdio: 'inherit',
+  stdio: ['inherit', 'pipe', 'pipe'],
   shell: true,
   env: { ...process.env, RUST_LOG: 'artgrid=trace,tauri=info', VERBOSE_LOG: 'true' }
+});
+
+child.stdout.on('data', data => {
+  process.stdout.write(data);
+  try { fs.appendFileSync(logFile, data); } catch(e) {}
+});
+
+child.stderr.on('data', data => {
+  process.stderr.write(data);
+  try { fs.appendFileSync(logFile, data); } catch(e) {}
 });
 
 child.on('exit', code => process.exit(code ?? 0));
