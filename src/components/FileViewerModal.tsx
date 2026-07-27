@@ -336,36 +336,14 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
     }, 150);
   };
 
-  const handleSpawnPopOutWindow = async () => {
+  const handlePopOut = async () => {
     if (!asset) return;
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const label = `viewer_${sanitizedId}_${Date.now()}`;
-      const origin = window.location.origin;
-      const pathname = window.location.pathname;
-      const popoutUrl = `${origin}${pathname}?previewAssetId=${encodeURIComponent(asset.id)}`;
-
-      new WebviewWindow(label, {
-        url: popoutUrl,
-        title: `ArtGrid Media Viewer — ${asset.title}`,
-        width: 1200,
-        height: 850,
-        decorations: true,
-        resizable: true,
-        shadow: true,
-        focus: true,
-        center: true,
-      });
+      await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
       onClose();
-    } catch (e) {
-      console.warn("Falling back to Rust open_standalone_window:", e);
-      try {
-        await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
-        onClose();
-      } catch (err) {
-        setIsPopOutWindow(true);
-      }
+    } catch (err) {
+      console.error("Failed to pop out window via IPC:", err);
+      setIsPopOutWindow(true);
     }
   };
 
@@ -784,7 +762,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
           {/* Pop-out Window Mode Toggle */}
           <button 
             className="toolbar__btn"
-            onClick={(e) => { e.stopPropagation(); handleSpawnPopOutWindow(); }}
+            onClick={(e) => { e.stopPropagation(); handlePopOut(); }}
             title="Pop-out into Standalone Window"
           >
             <IconMaximize size={15} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useMetadataStore, Collection } from '../stores/useMetadataStore';
 import {
   IconImage, IconBoard, IconSearch, IconStar,
@@ -86,17 +86,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSettings,
   stats
 }) => {
-  const { collections, tags, loadMetadata, createCollection } = useMetadataStore();
+  const { collections, tags, createCollection, loadMetadata } = useMetadataStore();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newColName, setNewColName] = useState('');
   const [newColColor, setNewColColor] = useState('#3b82f6');
   const [newColParent, setNewColParent] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    loadMetadata();
-  }, [loadMetadata]);
 
   const NAV_ITEMS = [
     { id: 'library' as ViewType, label: 'Library', icon: IconImage, count: stats.library },

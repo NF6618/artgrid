@@ -41,7 +41,7 @@ export function useLibrary() {
     };
   }, [loadAssets]);
 
-  const loadVault = async (path: string) => {
+  const loadVault = useCallback(async (path: string) => {
     try {
       await invoke('open_vault', { path });
       setVaultPath(path);
@@ -49,9 +49,9 @@ export function useLibrary() {
     } catch (err) {
       console.error('Failed to load vault:', err);
     }
-  };
+  }, [loadAssets]);
 
-  const openVault = async () => {
+  const openVault = useCallback(async () => {
     try {
       const selected = await open({
         directory: true,
@@ -65,7 +65,7 @@ export function useLibrary() {
     } catch (err) {
       console.error('Failed to open vault:', err);
     }
-  };
+  }, [loadVault]);
 
 
   const importFiles = async (explicitPaths?: string[], targetVaultPath?: string) => {

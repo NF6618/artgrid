@@ -49,7 +49,11 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (isLoaded && savedVaultPath && !vaultPath) {
       loadVault(savedVaultPath);
-      updateTabContext('default', { type: defaultView as TabType, title: defaultView.charAt(0).toUpperCase() + defaultView.slice(1) });
+      
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('standaloneTab') !== 'true') {
+        updateTabContext('default', { type: defaultView as TabType, title: defaultView.charAt(0).toUpperCase() + defaultView.slice(1) });
+      }
     }
   }, [isLoaded, savedVaultPath, vaultPath, loadVault, defaultView, updateTabContext]);
 
@@ -122,9 +126,9 @@ const App: React.FC = () => {
         collectionId: standaloneCollectionId || null,
         tag: standaloneTag || null,
       });
-      setActiveTab('default');
+      setActiveTab(standaloneTabId);
     }
-  }, [isStandaloneTab, standaloneTabType, standaloneBoardId, standaloneCollectionId, standaloneTag]);
+  }, [isStandaloneTab, standaloneTabType, standaloneTabId, standaloneBoardId, standaloneCollectionId, standaloneTag, updateTabContext, setActiveTab]);
   const [standaloneAsset, setStandaloneAsset] = useState<Asset | null>(null);
   const [standaloneAllAssets, setStandaloneAllAssets] = useState<Asset[]>([]);
   const [standaloneDetailVisible, setStandaloneDetailVisible] = useState(false);
@@ -199,7 +203,13 @@ const App: React.FC = () => {
   }, [loadAssets]);
 
   // Metadata Store
-  const { collections } = useMetadataStore();
+  const { collections, loadMetadata } = useMetadataStore();
+
+  useEffect(() => {
+    if (vaultPath) {
+      loadMetadata();
+    }
+  }, [vaultPath, loadMetadata]);
 
   // Handlers
   const handleSelectAsset = useCallback((asset: Asset) => {
@@ -355,7 +365,6 @@ const App: React.FC = () => {
 
   // Import Target Vault Modal state
   const [showImportVaultModal, setShowImportVaultModal] = useState(false);
-  const [isEditingBoardCanvas, setIsEditingBoardCanvas] = useState(false);
 
   // Get title based on active view
   const getViewTitle = () => {
@@ -523,7 +532,7 @@ const App: React.FC = () => {
                 onAssetsUpdated={loadAssets}
               />
             ) : activeView === 'boards' ? (
-              isEditingBoardCanvas && currentBoardId ? (
+              currentBoardId ? (
                 <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
                   {/* Left: Media Drawer */}
                   <div style={{
@@ -664,7 +673,10 @@ const App: React.FC = () => {
                     }}>
                       <button 
                         className="btn btn--secondary" 
-                        onClick={() => setIsEditingBoardCanvas(false)}
+                        onClick={() => {
+                          setActiveBoard('');
+                          updateTabContext(activeTabId, { boardId: null });
+                        }}
                         style={{ padding: '4px 10px', fontSize: '12px' }}
                       >
                         ← Back to All Boards
