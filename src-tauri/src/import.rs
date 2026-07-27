@@ -166,6 +166,9 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
     
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().cloned();
+
     let mut stmt = conn.prepare("
         SELECT 
             a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url, a.notes, a.archived, a.trashed, a.palette, a.color_profile,
@@ -176,6 +179,17 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
     ").map_err(|e| e.to_string())?;
     
     let asset_iter = stmt.query_map([], |row| {
+        let raw_filepath: String = row.get(3)?;
+        let raw_url: String = row.get(10)?;
+        
+        let full_url = if PathBuf::from(&raw_url).is_absolute() && PathBuf::from(&raw_url).exists() {
+            raw_url
+        } else if let Some(ref vp) = vault_path {
+            vp.join(&raw_filepath).to_string_lossy().into_owned()
+        } else {
+            raw_url
+        };
+
         let palette_raw: Option<String> = row.get(14)?;
         let palette: Option<Vec<String>> = palette_raw.and_then(|s| serde_json::from_str(&s).ok());
         let color_profile: Option<String> = row.get(15)?;
@@ -190,14 +204,14 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
             id: row.get(0)?,
             title: row.get(1)?,
             filename: row.get(2)?,
-            filepath: row.get(3)?,
+            filepath: raw_filepath,
             type_: row.get(4)?,
             size: row.get(5)?,
             width: row.get(6)?,
             height: row.get(7)?,
             favorite: row.get(8)?,
             date_added: row.get(9)?,
-            url: row.get(10)?,
+            url: full_url,
             notes: row.get(11)?,
             archived: row.get(12)?,
             trashed: row.get(13)?,

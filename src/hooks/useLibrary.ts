@@ -5,6 +5,9 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { Asset, Folder } from '../components/Gallery';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
+import { useBoardStore } from '../stores/useBoardStore';
+import { useMetadataStore } from '../stores/useMetadataStore';
+
 export function useLibrary() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -55,6 +58,8 @@ export function useLibrary() {
       }
       setVaultPath(path);
       await loadAssets();
+      useBoardStore.getState().fetchBoards();
+      useMetadataStore.getState().loadMetadata();
     } catch (err) {
       console.error('Failed to load vault:', err);
     } finally {
