@@ -40,6 +40,16 @@ export function useLibrary() {
     };
   }, [loadAssets]);
 
+  const loadVault = async (path: string) => {
+    try {
+      await invoke('open_vault', { path });
+      setVaultPath(path);
+      await loadAssets();
+    } catch (err) {
+      console.error('Failed to load vault:', err);
+    }
+  };
+
   const openVault = async () => {
     try {
       const selected = await open({
@@ -49,9 +59,7 @@ export function useLibrary() {
       });
       
       if (selected && typeof selected === 'string') {
-        await invoke('open_vault', { path: selected });
-        setVaultPath(selected);
-        await loadAssets();
+        await loadVault(selected);
       }
     } catch (err) {
       console.error('Failed to open vault:', err);
@@ -93,6 +101,7 @@ export function useLibrary() {
     isLoading,
     vaultPath,
     openVault,
+    loadVault,
     loadAssets,
     importFiles,
     setAssets // For optimistic UI updates like toggling favorites

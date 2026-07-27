@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 import { useLibrary } from './hooks/useLibrary';
 import { useBoardStore } from './stores/useBoardStore';
+import { useSettingsStore } from './stores/useSettingsStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
 
@@ -26,8 +27,29 @@ const App: React.FC = () => {
   const [showDetailPanel, setShowDetailPanel] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
 
+  const { isLoaded, loadSettings, vaultPath: savedVaultPath, defaultView, compactMode, updateSettings } = useSettingsStore();
+
+  React.useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
   // Library state via Tauri
-  const { assets, vaultPath, openVault, importFiles, setAssets } = useLibrary();
+  const { assets, vaultPath, openVault, loadVault, importFiles, setAssets } = useLibrary();
+
+  // Auto load saved vault on startup
+  React.useEffect(() => {
+    if (isLoaded && savedVaultPath && !vaultPath) {
+      loadVault(savedVaultPath);
+      setActiveView(defaultView as ViewType);
+    }
+  }, [isLoaded, savedVaultPath, vaultPath, loadVault, defaultView]);
+
+  // Sync new vault selection back to settings
+  React.useEffect(() => {
+    if (isLoaded && vaultPath && vaultPath !== savedVaultPath) {
+      updateSettings({ vaultPath });
+    }
+  }, [vaultPath, savedVaultPath, isLoaded, updateSettings]);
   
   // Data state
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
@@ -35,7 +57,7 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   
   // Board state via Zustand
-  const { boards, activeBoardId, loadBoards, createBoard, updateBoardNodes, setActiveBoard } = useBoardStore();
+  const { boards, activeBoardId, loadBoards, createBoard, updateBoardNodes, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
   const activeBoard = boards.find(b => b.id === activeBoardId);
 
   // Load boards when vault is available
@@ -125,7 +147,7 @@ const App: React.FC = () => {
       {/* <Titlebar title="ArtGrid" /> */}
 
       {/* Main Layout */}
-      <div className="app-layout">
+      <div className={`app-layout ${compactMode ? 'app-layout--compact' : ''}`}>
         {/* Sidebar */}
         <Sidebar
           activeView={activeView}
@@ -196,23 +218,78 @@ const App: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div className="canvas-container">
-                  <div className="canvas-container__grid" />
-                  
-                  {/* Board Tabs (Simple implementation for switching) */}
-                  <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10, display: 'flex', gap: '8px' }}>
-                    {boards.map(b => (
-                      <button 
-                        key={b.id} 
-                        className={`btn ${b.id === activeBoardId ? 'btn--primary' : ''}`}
-                        onClick={() => setActiveBoard(b.id)}
-                        style={{ padding: '4px 12px', fontSize: '12px' }}
-                      >
-                        {b.title}
-                      </button>
-                    ))}
-                    <button className="btn" onClick={() => createBoard('New Board')} style={{ padding: '4px 8px' }}>+</button>
+                <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
+                  {/* Left Side: Asset Sidebar */}
+                  <div style={{ 
+                    width: 250, 
+                    borderRight: '1px solid var(--border-subtle)', 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    background: 'var(--bg-surface)' 
+                  }}>
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+                      <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600 }}>Drag to Board</h3>
+                    </div>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignContent: 'start' }}>
+                      {filteredAssets.map(asset => (
+                        <div 
+                          key={asset.id} 
+                          draggable 
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('application/json', JSON.stringify({ 
+                              id: asset.id, 
+                              url: asset.url, 
+                              title: asset.title,
+                              width: asset.width,
+                              height: asset.height
+                            }));
+                          }}
+                          style={{ aspectRatio: '1', background: 'var(--bg-base)', borderRadius: 4, overflow: 'hidden', cursor: 'grab' }}
+                          title={asset.title}
+                        >
+                          <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                  
+                  {/* Right Side: Canvas */}
+                  <div className="canvas-container" style={{ flex: 1, position: 'relative' }}>
+                    <div className="canvas-container__grid" />
+                    
+                    {/* Board Tabs */}
+                    <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10, display: 'flex', gap: '8px' }}>
+                      {boards.map(b => (
+                        <div key={b.id} style={{ display: 'flex' }}>
+                          <button 
+                            className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--secondary'}`}
+                            onClick={() => setActiveBoard(b.id)}
+                            style={{ padding: '4px 12px', fontSize: '12px', borderRadius: '4px 0 0 4px' }}
+                            onDoubleClick={() => {
+                              const newTitle = prompt('Rename board:', b.title);
+                              if (newTitle) renameBoard(b.id, newTitle);
+                            }}
+                            title="Double-click to rename"
+                          >
+                            {b.title}
+                          </button>
+                          <button 
+                            className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--secondary'}`}
+                            onClick={(e) => {
+                               e.stopPropagation();
+                               if (window.confirm(`Delete board "${b.title}"?`)) {
+                                 deleteBoard(b.id);
+                               }
+                            }}
+                            style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '0 4px 4px 0', borderLeft: '1px solid rgba(0,0,0,0.1)' }}
+                            title="Delete Board"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button className="btn btn--secondary" onClick={() => createBoard('New Board')} style={{ padding: '4px 8px' }}>+</button>
+                    </div>
 
                   {/* Canvas Implementation */}
                   <BoardCanvas 
@@ -267,7 +344,8 @@ const App: React.FC = () => {
                     top: '20%', left: '25%', width: '40%', height: '50%',
                   }} />
                 </div>
-              </div>
+                  </div>
+                </div>
               )
             ) : activeView === 'graph' ? (
               <div style={{

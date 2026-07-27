@@ -10,6 +10,7 @@ interface BoardState {
   loadBoards: () => Promise<void>;
   createBoard: (title: string) => Promise<void>;
   updateBoardNodes: (boardId: string, nodes: BoardNode[]) => Promise<void>;
+  renameBoard: (boardId: string, newTitle: string) => Promise<void>;
   deleteBoard: (boardId: string) => Promise<void>;
   setActiveBoard: (boardId: string | null) => void;
 }
@@ -62,7 +63,29 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       });
     } catch (err) {
       console.error('Failed to save board nodes:', err);
-      // We could revert the optimistic update here if desired
+    }
+  },
+
+  renameBoard: async (boardId: string, newTitle: string) => {
+    // Optimistic update
+    set(state => ({
+      boards: state.boards.map(b => 
+        b.id === boardId ? { ...b, title: newTitle } : b
+      )
+    }));
+
+    const board = get().boards.find(b => b.id === boardId);
+    if (!board) return;
+
+    try {
+      await invoke('save_board', { 
+        id: board.id, 
+        title: newTitle, 
+        nodes: board.nodes 
+      });
+    } catch (err) {
+      console.error('Failed to rename board:', err);
+      // Revert could be added here
     }
   },
 

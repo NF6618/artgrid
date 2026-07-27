@@ -210,11 +210,27 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
       
       const worldPos = viewportRef.current.toWorld(screenX, screenY);
       
+      // Dynamic aspect-ratio sizing logic
+      let width = 300;
+      let height = 300;
+      
+      if (asset.width && asset.height) {
+        const aspect = asset.width / asset.height;
+        const MAX_DIM = 400; // max dimension bound
+        if (asset.width > asset.height) {
+          width = Math.min(asset.width, MAX_DIM);
+          height = width / aspect;
+        } else {
+          height = Math.min(asset.height, MAX_DIM);
+          width = height * aspect;
+        }
+      }
+
       const newNode: BoardNode = {
         id: uuidv4(),
         type: 'image',
         position: { x: worldPos.x, y: worldPos.y },
-        dimensions: { width: 300, height: 300 }, // Default size for now
+        dimensions: { width, height },
         data: {
           assetId: asset.id,
           url: asset.url

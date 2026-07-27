@@ -1,5 +1,4 @@
 use notify::{Watcher, RecursiveMode, Event, EventKind};
-use notify::event::CreateKind;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;

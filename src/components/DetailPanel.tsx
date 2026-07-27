@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useMetadataStore } from '../stores/useMetadataStore';
 import { Asset } from './Gallery';
 import { IconClose, IconPlus } from './Icons';
 
@@ -9,6 +10,21 @@ interface DetailPanelProps {
 }
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClose }) => {
+  const { addTagToAsset } = useMetadataStore();
+  const [newTag, setNewTag] = useState('');
+  const [isAddingTag, setIsAddingTag] = useState(false);
+
+  const handleAddTag = async () => {
+    if (newTag.trim() && asset) {
+      await addTagToAsset(asset.id, newTag.trim());
+      if (!asset.tags.includes(newTag.trim())) {
+        asset.tags.push(newTag.trim());
+      }
+      setNewTag('');
+      setIsAddingTag(false);
+    }
+  };
+
   if (!visible) return null;
 
   if (!asset) {
@@ -62,6 +78,9 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
             borderRadius: 'var(--radius-md)',
             position: 'relative',
             overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
           <div style={{
@@ -70,6 +89,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
             opacity: 0.12,
             backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.5'/%3E%3C/svg%3E")`,
           }} />
+          <img src={asset.url} alt={asset.title} style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
       </div>
 
@@ -111,10 +131,21 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
             {asset.tags.map(tag => (
               <span key={tag} className="tag">{tag}</span>
             ))}
-            <span className="tag tag--add">
-              <IconPlus size={10} />
-              Add
-            </span>
+            {isAddingTag ? (
+              <input 
+                autoFocus
+                value={newTag}
+                onChange={e => setNewTag(e.target.value)}
+                onBlur={handleAddTag}
+                onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', width: 60, padding: '2px 4px', fontSize: '10px' }}
+              />
+            ) : (
+              <span className="tag tag--add" onClick={() => setIsAddingTag(true)}>
+                <IconPlus size={10} />
+                Add
+              </span>
+            )}
           </div>
         </div>
 
@@ -170,11 +201,9 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Collections</div>
           <div className="tags">
-            <span className="tag tag--accent">Character Design</span>
-            <span className="tag tag--accent">Fantasy</span>
             <span className="tag tag--add">
               <IconPlus size={10} />
-              Add
+              Add to Collection
             </span>
           </div>
         </div>

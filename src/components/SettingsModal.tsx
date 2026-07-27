@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSettingsStore, AppSettings } from '../stores/useSettingsStore';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -18,20 +19,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Mock settings state
-  const [settings, setSettings] = useState({
-    theme: 'dark',
-    accentColor: '#3b82f6',
-    defaultView: 'library',
-    autoWatch: true,
-    compactMode: false
+  const { theme, defaultView, autoWatch, compactMode, updateSettings } = useSettingsStore();
+
+  const [settings, setSettings] = useState<Partial<AppSettings>>({
+    theme,
+    defaultView,
+    autoWatch,
+    compactMode
   });
+
+  useEffect(() => {
+    if (visible) {
+      setSettings({ theme, defaultView, autoWatch, compactMode });
+      setHasChanges(false);
+    }
+  }, [visible, theme, defaultView, autoWatch, compactMode]);
 
   if (!visible) return null;
 
-  const handleSave = () => {
-    // In the future this will save to tauri-plugin-store
-    console.log("Saving settings...", settings);
+  const handleSave = async () => {
+    await updateSettings(settings);
     setHasChanges(false);
     onClose();
   };

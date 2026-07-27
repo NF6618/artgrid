@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useMetadataStore, Collection } from '../stores/useMetadataStore';
 import {
   IconImage, IconBoard, IconSearch, IconStar,
   IconClock, IconArchive, IconTrash, IconTag, IconGraph,
@@ -24,16 +25,7 @@ interface SidebarProps {
   };
 }
 
-interface Collection {
-  id: string;
-  name: string;
-  color: string;
-  count: number;
-  children?: Collection[];
-}
 
-// Demo collections data removed
-const COLLECTIONS: Collection[] = [];
 
 // Removed static NAV_ITEMS and QUICK_ACCESS to move them inside component
 
@@ -66,7 +58,7 @@ const CollectionTreeItem: React.FC<{
         )}
         <div className="collection-tree__color" style={{ background: collection.color }} />
         <span className="sidebar__item-label">{collection.name}</span>
-        {collection.count > 0 && (
+        {collection.count !== undefined && collection.count > 0 && (
           <span className="sidebar__item-count">{collection.count}</span>
         )}
       </div>
@@ -92,6 +84,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSettings,
   stats
 }) => {
+  const { collections, loadMetadata } = useMetadataStore();
+
+  useEffect(() => {
+    loadMetadata();
+  }, [loadMetadata]);
   const NAV_ITEMS = [
     { id: 'library' as ViewType, label: 'Library', icon: IconImage, count: stats.library },
     { id: 'boards' as ViewType, label: 'Boards', icon: IconBoard, count: stats.boards },
@@ -146,12 +143,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="toolbar__btn"
             style={{ width: 20, height: 20, minWidth: 20, padding: 0 }}
             title="New collection"
+            onClick={() => {
+              const name = window.prompt("New Collection Name:");
+              if (name && name.trim()) {
+                useMetadataStore.getState().createCollection(name.trim(), '#3b82f6');
+              }
+            }}
           >
             <IconPlus size={12} />
           </button>
         </div>
         <div className="collection-tree">
-          {COLLECTIONS.map(collection => (
+          {collections.map(collection => (
             <CollectionTreeItem
               key={collection.id}
               collection={collection}

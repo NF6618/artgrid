@@ -10,9 +10,8 @@ use std::sync::Mutex;
 mod db;
 mod import;
 mod watcher;
-
-
 mod board;
+mod metadata;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -50,7 +49,11 @@ pub fn run() {
             board::get_boards,
             board::create_board,
             board::save_board,
-            board::delete_board
+            board::delete_board,
+            metadata::get_collections,
+            metadata::create_collection,
+            metadata::get_tags,
+            metadata::add_tag_to_asset
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
