@@ -15,7 +15,6 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useMetadataStore } from './stores/useMetadataStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
-import { Titlebar } from './components/Titlebar';
 import { ImportVaultModal } from './components/ImportVaultModal';
 import { BoardsGallery } from './components/BoardsGallery';
 
@@ -63,6 +62,24 @@ const App: React.FC = () => {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    (window as any).__artgridOpenPreviewAsset = (asset: Asset) => setPreviewAsset(asset);
+  }, []);
+
+  // Auto open asset preview if launched in standalone popout window
+  useEffect(() => {
+    if (assets.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const targetAssetId = params.get('previewAssetId');
+      if (targetAssetId) {
+        const found = assets.find(a => a.id === targetAssetId);
+        if (found) {
+          setPreviewAsset(found);
+        }
+      }
+    }
+  }, [assets]);
   
   const { boards, activeBoardId, loadBoards, createBoard, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
 
@@ -302,58 +319,52 @@ const App: React.FC = () => {
 
   return (
     <>
-      {/* Custom Titlebar */}
-      <Titlebar 
-        title={`ArtGrid — ${getViewTitle()}`}
-        canGoBack={navIndex > 0}
-        canGoForward={navIndex < navHistory.length - 1}
-        onGoBack={handleGoBack}
-        onGoForward={handleGoForward}
+      <div className={`app-layout ${compactMode ? 'app-layout--compact' : ''}`}>
+      {/* Sidebar */}
+      <Sidebar
+        activeView={activeView}
+        onViewChange={handleNavViewChange}
+        activeCollection={activeCollection}
+        onCollectionChange={handleNavCollectionChange}
+        activeTag={activeTag}
+        onTagChange={handleNavTagChange}
+        onImport={() => setShowImportVaultModal(true)}
+        onSettings={() => setShowSettings(true)}
+        stats={{
+          library: assets.length,
+          boards: boards.length,
+          favorites: assets.filter(a => a.favorite).length,
+          untagged: assets.filter(a => !a.tags || a.tags.length === 0).length,
+        }}
       />
 
-      {/* Main Layout */}
-      <div className={`app-layout ${compactMode ? 'app-layout--compact' : ''}`}>
-        {/* Sidebar */}
-        <Sidebar
-          activeView={activeView}
-          onViewChange={handleNavViewChange}
-          activeCollection={activeCollection}
-          onCollectionChange={handleNavCollectionChange}
-          activeTag={activeTag}
-          onTagChange={handleNavTagChange}
-          onImport={() => setShowImportVaultModal(true)}
-          onSettings={() => setShowSettings(true)}
-          stats={{
-            library: assets.length,
-            boards: boards.length,
-            favorites: assets.filter(a => a.favorite).length,
-            untagged: assets.filter(a => !a.tags || a.tags.length === 0).length,
-          }}
+      {/* Content Area */}
+      <div className="content-area">
+        {/* Toolbar */}
+        <Toolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          showDetailPanel={showDetailPanel}
+          onToggleDetailPanel={handleToggleDetailPanel}
+          title={getViewTitle()}
+          itemCount={filteredAssets.length}
+          onRefresh={loadAssets}
+          filterType={filterType}
+          onFilterTypeChange={setFilterType}
+          colorFilter={colorFilter}
+          onColorFilterChange={setColorFilter}
+          sortBy={sortBy}
+          onSortByChange={setSortBy}
+          showImageNames={showImageNames}
+          onToggleImageNames={() => setShowImageNames(v => !v)}
+          onImport={importFiles}
+          canGoBack={navIndex > 0}
+          canGoForward={navIndex < navHistory.length - 1}
+          onGoBack={handleGoBack}
+          onGoForward={handleGoForward}
         />
-
-        {/* Content Area */}
-        <div className="content-area">
-          {/* Toolbar */}
-          <Toolbar
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            showDetailPanel={showDetailPanel}
-            onToggleDetailPanel={handleToggleDetailPanel}
-            title={getViewTitle()}
-            itemCount={filteredAssets.length}
-            onRefresh={loadAssets}
-            filterType={filterType}
-            onFilterTypeChange={setFilterType}
-            colorFilter={colorFilter}
-            onColorFilterChange={setColorFilter}
-            sortBy={sortBy}
-            onSortByChange={setSortBy}
-            showImageNames={showImageNames}
-            onToggleImageNames={() => setShowImageNames(v => !v)}
-            onImport={importFiles}
-          />
 
           {/* Main content + detail panel */}
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

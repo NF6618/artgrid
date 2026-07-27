@@ -25,6 +25,10 @@ interface ToolbarProps {
   colorFilter?: string;
   onColorFilterChange?: (color: string) => void;
   onImport?: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -46,6 +50,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   colorFilter = 'all',
   onColorFilterChange,
   onImport,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
 }) => {
   const [localSearch, setLocalSearch] = useState(searchQuery);
   const searchDebounceRef = useRef<any>(null);
@@ -69,8 +77,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <div className="toolbar">
-      {/* Left: View info */}
-      <div className="toolbar__group">
+      {/* Left: History Navigation & View Info */}
+      <div className="toolbar__group" style={{ gap: 8 }}>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button 
+            className="toolbar__btn" 
+            onClick={onGoBack} 
+            disabled={!canGoBack}
+            title="Go Back"
+            style={{ width: 26, height: 26, minWidth: 26, padding: 0, opacity: canGoBack ? 1 : 0.3, cursor: canGoBack ? 'pointer' : 'default' }}
+          >
+            ◀
+          </button>
+          <button 
+            className="toolbar__btn" 
+            onClick={onGoForward} 
+            disabled={!canGoForward}
+            title="Go Forward"
+            style={{ width: 26, height: 26, minWidth: 26, padding: 0, opacity: canGoForward ? 1 : 0.3, cursor: canGoForward ? 'pointer' : 'default' }}
+          >
+            ▶
+          </button>
+        </div>
+
+        <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+
         <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
           {title}
         </span>

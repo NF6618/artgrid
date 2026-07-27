@@ -402,6 +402,169 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
 }
 
 #[tauri::command]
+pub fn save_base64_image_asset(title: String, base64_data: String, state: State<'_, AppState>) -> Result<AssetData, String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+
+    let raw_b64 = if let Some(pos) = base64_data.find(',') {
+        &base64_data[pos + 1..]
+    } else {
+        &base64_data
+    };
+
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(raw_b64)
+        .map_err(|e| format!("Failed to decode base64 image: {}", e))?;
+
+    let id = Uuid::new_v4().to_string();
+    let filename = format!("{}.png", id);
+    let dest_rel_path = PathBuf::from("artgrid").join("media").join(&filename);
+    let dest_abs_path = vault_path.join(&dest_rel_path);
+
+    if let Some(parent) = dest_abs_path.parent() {
+        if !parent.exists() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
+
+    fs::write(&dest_abs_path, bytes).map_err(|e| format!("Failed to write image file: {}", e))?;
+
+    let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
+    let (palette, color_profile) = extract_color_palette(&dest_abs_path);
+    let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
+    let metadata = fs::metadata(&dest_abs_path).map_err(|e| e.to_string())?;
+    let size_bytes = metadata.len();
+    let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
+
+    let now = Utc::now().to_rfc3339();
+    let local_url = dest_abs_path.to_string_lossy().into_owned();
+
+    let asset = AssetData {
+        id: id.clone(),
+        title: if title.trim().is_empty() { format!("Snapshot_{}", &id[..6]) } else { title },
+        filename: filename.clone(),
+        filepath: dest_rel_path.to_string_lossy().into_owned(),
+        type_: "image/png".to_string(),
+        size: size_str,
+        width,
+        height,
+        favorite: false,
+        date_added: now,
+        url: local_url.clone(),
+        notes: None,
+        archived: false,
+        trashed: false,
+        palette,
+        color_profile: color_profile.clone(),
+        tags: vec![],
+        collections: vec![],
+    };
+
+    conn.execute(
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        (
+            &asset.id,
+            &asset.title,
+            &asset.filename,
+            &asset.filepath,
+            &asset.type_,
+            &asset.size,
+            &asset.width,
+            &asset.height,
+            &asset.favorite,
+            &asset.date_added,
+            &asset.url,
+            &asset.notes,
+            &asset.archived,
+            &asset.trashed,
+            &palette_json,
+            &color_profile,
+        ),
+    ).map_err(|e| e.to_string())?;
+
+    Ok(asset)
+}
+
+#[tauri::command]
+pub fn save_text_asset(title: String, text_content: String, state: State<'_, AppState>) -> Result<AssetData, String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+
+    let id = Uuid::new_v4().to_string();
+    let filename = format!("{}.md", id);
+    let dest_rel_path = PathBuf::from("artgrid").join("media").join(&filename);
+    let dest_abs_path = vault_path.join(&dest_rel_path);
+
+    if let Some(parent) = dest_abs_path.parent() {
+        if !parent.exists() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
+
+    fs::write(&dest_abs_path, text_content.as_bytes()).map_err(|e| format!("Failed to write text file: {}", e))?;
+
+    let metadata = fs::metadata(&dest_abs_path).map_err(|e| e.to_string())?;
+    let size_bytes = metadata.len();
+    let size_str = format!("{:.1} KB", size_bytes as f64 / 1024.0);
+
+    let now = Utc::now().to_rfc3339();
+    let local_url = dest_abs_path.to_string_lossy().into_owned();
+
+    let asset = AssetData {
+        id: id.clone(),
+        title: if title.trim().is_empty() { "Extracted Text".to_string() } else { title },
+        filename: filename.clone(),
+        filepath: dest_rel_path.to_string_lossy().into_owned(),
+        type_: "text/plain".to_string(),
+        size: size_str,
+        width: 0,
+        height: 0,
+        favorite: false,
+        date_added: now,
+        url: local_url.clone(),
+        notes: None,
+        archived: false,
+        trashed: false,
+        palette: None,
+        color_profile: None,
+        tags: vec![],
+        collections: vec![],
+    };
+
+    conn.execute(
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        (
+            &asset.id,
+            &asset.title,
+            &asset.filename,
+            &asset.filepath,
+            &asset.type_,
+            &asset.size,
+            &asset.width,
+            &asset.height,
+            &asset.favorite,
+            &asset.date_added,
+            &asset.url,
+            &asset.notes,
+            &asset.archived,
+            &asset.trashed,
+            None::<String>,
+            None::<String>,
+        ),
+    ).map_err(|e| e.to_string())?;
+
+    Ok(asset)
+}
+
+#[tauri::command]
 pub fn update_asset_notes(id: String, notes: String, state: State<'_, AppState>) -> Result<(), String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;

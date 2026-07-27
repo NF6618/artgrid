@@ -50,6 +50,8 @@ pub fn run() {
             import::get_assets,
             import::import_file,
             import::import_from_url,
+            import::save_base64_image_asset,
+            import::save_text_asset,
             import::toggle_favorite,
             import::update_asset_notes,
             import::archive_asset,

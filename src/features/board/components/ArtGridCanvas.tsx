@@ -5,6 +5,20 @@ import { HistoryManager } from '../engine/history';
 import { BoardToolbar } from './BoardToolbar';
 import { BoardPropertyBar } from './BoardPropertyBar';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import {
+  IconScissors,
+  IconCopy,
+  IconLock,
+  IconUnlock,
+  IconTrash,
+  IconType,
+  IconStickyNote,
+  IconBoard,
+  IconSquare,
+  IconPencil,
+  IconChevronRight,
+  IconChevronDown,
+} from '../../../components/Icons';
 
 interface ArtGridCanvasProps {
   initialNodes: ArtGridNode[];
@@ -573,6 +587,46 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
 
   const selectedNodes = nodes.filter(n => selectedIds.includes(n.id));
 
+  // Right-click Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    worldPos: Point;
+    targetNode: ArtGridNode | null;
+  } | null>(null);
+
+  // Handle Right Click Context Menu
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const world = screenToWorld(e.clientX, e.clientY);
+    const clickedNode = [...nodes].reverse().find(n => (
+      world.x >= n.x && world.x <= n.x + n.width &&
+      world.y >= n.y && world.y <= n.y + n.height
+    ));
+
+    if (clickedNode) {
+      if (!selectedIds.includes(clickedNode.id)) {
+        setSelectedIds([clickedNode.id]);
+      }
+    }
+
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      worldPos: world,
+      targetNode: clickedNode || null,
+    });
+  };
+
+  // Close context menu on left click anywhere
+  useEffect(() => {
+    const handleCloseContextMenu = () => setContextMenu(null);
+    window.addEventListener('click', handleCloseContextMenu);
+    return () => window.removeEventListener('click', handleCloseContextMenu);
+  }, []);
+
   return (
     <div
       ref={containerRef}
@@ -589,6 +643,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onContextMenu={handleContextMenu}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
@@ -881,6 +936,215 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         onResetZoom={() => setViewport({ x: 0, y: 0, zoom: 1.0 })}
         zoomLevel={viewport.zoom}
       />
+
+      {/* Right-Click Asset Creation & Editing Context Menu */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            left: Math.min(contextMenu.x, window.innerWidth - 220),
+            top: Math.min(contextMenu.y, window.innerHeight - 260),
+            width: 210,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 8,
+            padding: 6,
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.7)',
+            zIndex: 1000,
+            backdropFilter: 'blur(16px)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {contextMenu.targetNode ? (
+            /* Asset Node Editing Actions */
+            <>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 8px', textTransform: 'uppercase' }}>
+                Element Actions
+              </div>
+
+              {contextMenu.targetNode.type === 'image' && (
+                <button
+                  className="btn btn--secondary"
+                  style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                  onClick={() => {
+                    const imgNode = contextMenu.targetNode as ImageNode;
+                    const pseudoAsset = {
+                      id: imgNode.assetId || imgNode.id,
+                      title: 'Canvas Asset',
+                      filename: 'canvas_image.png',
+                      filepath: imgNode.src,
+                      type: 'image/png',
+                      size: '1.0 MB',
+                      width: imgNode.width,
+                      height: imgNode.height,
+                      favorite: false,
+                      date_added: new Date().toISOString(),
+                      url: imgNode.src,
+                    };
+                    (window as any).__artgridOpenPreviewAsset?.(pseudoAsset);
+                    setContextMenu(null);
+                  }}
+                >
+                  <IconScissors size={14} /> Crop / Edit Media Studio
+                </button>
+              )}
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => { handleDuplicateSelection(); setContextMenu(null); }}
+              >
+                <IconCopy size={14} /> Duplicate Node
+              </button>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => { handleBringToFront(); setContextMenu(null); }}
+              >
+                <IconChevronRight size={14} style={{ transform: 'rotate(-90deg)' }} /> Bring to Front
+              </button>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => { handleSendToBack(); setContextMenu(null); }}
+              >
+                <IconChevronDown size={14} /> Send to Back
+              </button>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => { handleToggleLock(); setContextMenu(null); }}
+              >
+                {contextMenu.targetNode.locked ? <IconUnlock size={14} /> : <IconLock size={14} />}
+                {contextMenu.targetNode.locked ? 'Unlock Position' : 'Lock Position'}
+              </button>
+
+              <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', color: '#f06b8e', borderColor: 'rgba(240, 107, 142, 0.3)', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => { handleDeleteSelection(); setContextMenu(null); }}
+              >
+                <IconTrash size={14} /> Delete Element
+              </button>
+            </>
+          ) : (
+            /* Canvas Background Creation Actions */
+            <>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 8px', textTransform: 'uppercase' }}>
+                Create Asset
+              </div>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  const newNode: TextNode = {
+                    id: `node_${crypto.randomUUID()}`,
+                    type: 'text',
+                    x: contextMenu.worldPos.x,
+                    y: contextMenu.worldPos.y,
+                    width: 180,
+                    height: 44,
+                    text: 'New Text Box',
+                    color: '#e8e8f0',
+                  };
+                  updateNodes([...nodes, newNode]);
+                  setSelectedIds([newNode.id]);
+                  setContextMenu(null);
+                }}
+              >
+                <IconType size={14} /> Add Text Box
+              </button>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  const newNode: NoteNode = {
+                    id: `node_${crypto.randomUUID()}`,
+                    type: 'note',
+                    x: contextMenu.worldPos.x,
+                    y: contextMenu.worldPos.y,
+                    width: 180,
+                    height: 180,
+                    text: 'Sticky Note',
+                    color: 'yellow',
+                  };
+                  updateNodes([...nodes, newNode]);
+                  setSelectedIds([newNode.id]);
+                  setContextMenu(null);
+                }}
+              >
+                <IconStickyNote size={14} /> Add Sticky Note
+              </button>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  const newNode: SectionNode = {
+                    id: `node_${crypto.randomUUID()}`,
+                    type: 'section',
+                    x: contextMenu.worldPos.x,
+                    y: contextMenu.worldPos.y,
+                    width: 480,
+                    height: 360,
+                    title: 'New Section Frame',
+                    color: 'var(--accent-primary)',
+                  };
+                  updateNodes([newNode, ...nodes]);
+                  setSelectedIds([newNode.id]);
+                  setContextMenu(null);
+                }}
+              >
+                <IconBoard size={14} /> Add Section Frame
+              </button>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  const newNode: ShapeNode = {
+                    id: `node_${crypto.randomUUID()}`,
+                    type: 'shape',
+                    shapeType: 'rectangle',
+                    x: contextMenu.worldPos.x,
+                    y: contextMenu.worldPos.y,
+                    width: 200,
+                    height: 150,
+                    strokeColor: 'var(--accent-primary)',
+                    fillColor: 'rgba(124, 107, 240, 0.1)',
+                  };
+                  updateNodes([...nodes, newNode]);
+                  setSelectedIds([newNode.id]);
+                  setContextMenu(null);
+                }}
+              >
+                <IconSquare size={14} /> Add Shape
+              </button>
+
+              <button
+                className="btn btn--secondary"
+                style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                onClick={() => {
+                  setActiveTool('pen');
+                  setContextMenu(null);
+                }}
+              >
+                <IconPencil size={14} /> Draw with Pen Tool
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
