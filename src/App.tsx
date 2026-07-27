@@ -17,15 +17,19 @@ import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
 import { ImportVaultModal } from './components/ImportVaultModal';
 import { BoardsGallery } from './components/BoardsGallery';
+import { TabBar } from './components/TabBar';
+import { useTabStore, TabType, AppTab } from './stores/useTabStore';
 
-type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 type ViewMode = 'grid' | 'list' | 'board';
 
 const App: React.FC = () => {
-  // Navigation state
-  const [activeView, setActiveView] = useState<ViewType>('library');
-  const [activeCollection, setActiveCollection] = useState<string | null>(null);
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  // Tab state
+  const { tabs, activeTabId, updateTabContext, addTab, setActiveTab, closeTab } = useTabStore();
+  const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
+  const activeView = activeTab.type;
+  const activeCollection = activeTab.collectionId || null;
+  const activeTag = activeTab.tag || null;
+  const activeBoardIdOverride = activeTab.boardId || null;
 
   // View state
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -45,9 +49,9 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (isLoaded && savedVaultPath && !vaultPath) {
       loadVault(savedVaultPath);
-      setActiveView(defaultView as ViewType);
+      updateTabContext('default', { type: defaultView as TabType, title: defaultView.charAt(0).toUpperCase() + defaultView.slice(1) });
     }
-  }, [isLoaded, savedVaultPath, vaultPath, loadVault, defaultView]);
+  }, [isLoaded, savedVaultPath, vaultPath, loadVault, defaultView, updateTabContext]);
 
   // Sync new vault selection back to settings
   React.useEffect(() => {
@@ -97,30 +101,68 @@ const App: React.FC = () => {
   }, [handleOpenPreviewAsset]);
 
   // Check if running in Standalone Window Mode
-  const standaloneAssetId = new URLSearchParams(window.location.search).get('previewAssetId');
-  const [standaloneAsset, setStandaloneAsset] = useState<Asset | null>(null);
+  const urlParams = new URLSearchParams(window.location.search);
+  const standaloneAssetId = urlParams.get('previewAssetId');
+  
+  // Standalone Tab Mode
+  const isStandaloneTab = urlParams.get('standaloneTab') === 'true';
+  const standaloneTabType = urlParams.get('tabType') as TabType || 'library';
+  const standaloneTabId = urlParams.get('tabId') || 'standalone-tab';
+  const standaloneBoardId = urlParams.get('boardId');
+  const standaloneCollectionId = urlParams.get('collectionId');
+  const standaloneTag = urlParams.get('tag');
 
-  // Wait for vault to be initialized before loading standalone asset.
-  // The vault init chain is: loadSettings() → isLoaded=true → loadVault(savedVaultPath) → vaultPath set.
-  // Only after vaultPath is truthy is the DB connection open and get_assets will succeed.
   useEffect(() => {
-    if (standaloneAssetId && vaultPath) {
-      invoke<Asset[]>('get_assets')
-        .then(fetchedAssets => {
-          const now = Date.now();
-          const found = fetchedAssets.find(a => a.id === standaloneAssetId);
-          if (found) {
-            setStandaloneAsset({
-              ...found,
-              url: convertFileSrc(found.url) + `?t=${now}`,
-            });
-          }
-        })
-        .catch(err => console.error("Failed to load standalone asset via IPC:", err));
+    if (isStandaloneTab) {
+      // Force the store to adopt this single standalone tab configuration
+      updateTabContext('default', {
+        id: standaloneTabId,
+        type: standaloneTabType,
+        boardId: standaloneBoardId || null,
+        collectionId: standaloneCollectionId || null,
+        tag: standaloneTag || null,
+      });
+      setActiveTab('default');
     }
-  }, [standaloneAssetId, vaultPath]);
+  }, [isStandaloneTab, standaloneTabType, standaloneBoardId, standaloneCollectionId, standaloneTag]);
+  const [standaloneAsset, setStandaloneAsset] = useState<Asset | null>(null);
+  const [standaloneAllAssets, setStandaloneAllAssets] = useState<Asset[]>([]);
+  const [standaloneDetailVisible, setStandaloneDetailVisible] = useState(false);
+
+  // Standalone window asset loading.
+  // The Rust backend's AppState (DB connection) is shared across all windows,
+  // so if the main window already opened the vault, get_assets works immediately.
+  const loadStandaloneAssets = useCallback(async (retriesLeft = 5) => {
+    try {
+      const fetchedAssets: Asset[] = await invoke('get_assets');
+      const now = Date.now();
+      const processed = fetchedAssets.map(a => ({
+        ...a,
+        url: convertFileSrc(a.url) + `?t=${now}`,
+      }));
+      setStandaloneAllAssets(processed);
+      if (standaloneAssetId) {
+        const found = processed.find(a => a.id === standaloneAssetId);
+        if (found && !standaloneAsset) {
+          setStandaloneAsset(found);
+        }
+      }
+    } catch (err) {
+      if (retriesLeft > 0) {
+        setTimeout(() => loadStandaloneAssets(retriesLeft - 1), 300);
+      } else {
+        console.error("Failed to load standalone assets:", err);
+      }
+    }
+  }, [standaloneAssetId, standaloneAsset]);
+
+  useEffect(() => {
+    if (!standaloneAssetId) return;
+    loadStandaloneAssets();
+  }, [standaloneAssetId]);
   
   const { boards, activeBoardId, loadBoards, createBoard, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
+  const currentBoardId = activeBoardIdOverride || activeBoardId;
 
   // Load boards when vault is available
   React.useEffect(() => {
@@ -289,52 +331,27 @@ const App: React.FC = () => {
     boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
   }
 
-  // Navigation History Stack (Back / Forward)
-  const [navHistory, setNavHistory] = useState<Array<{ view: ViewType; collection: string | null; tag: string | null }>>([
-    { view: 'library', collection: null, tag: null }
-  ]);
-  const [navIndex, setNavIndex] = useState(0);
-
-  const handleNavViewChange = (newView: ViewType) => {
+  const handleNavViewChange = (newView: TabType) => {
     if (newView === activeView && !activeCollection && !activeTag) return;
-    setActiveView(newView);
-    setActiveCollection(null);
-    setActiveTag(null);
-    setNavHistory(prev => [...prev.slice(0, navIndex + 1), { view: newView, collection: null, tag: null }]);
-    setNavIndex(i => i + 1);
+    updateTabContext(activeTabId, {
+      type: newView,
+      title: newView.charAt(0).toUpperCase() + newView.slice(1),
+      collectionId: null,
+      tag: null,
+      boardId: null,
+    });
   };
 
   const handleNavCollectionChange = (colId: string | null) => {
-    setActiveCollection(colId);
-    setNavHistory(prev => [...prev.slice(0, navIndex + 1), { view: activeView, collection: colId, tag: activeTag }]);
-    setNavIndex(i => i + 1);
+    updateTabContext(activeTabId, { collectionId: colId, tag: null, boardId: null });
   };
 
   const handleNavTagChange = (tagName: string | null) => {
-    setActiveTag(tagName);
-    setNavHistory(prev => [...prev.slice(0, navIndex + 1), { view: activeView, collection: activeCollection, tag: tagName }]);
-    setNavIndex(i => i + 1);
+    updateTabContext(activeTabId, { tag: tagName, collectionId: null, boardId: null });
   };
 
-  const handleGoBack = () => {
-    if (navIndex > 0) {
-      const prev = navHistory[navIndex - 1];
-      setNavIndex(navIndex - 1);
-      setActiveView(prev.view);
-      setActiveCollection(prev.collection);
-      setActiveTag(prev.tag);
-    }
-  };
-
-  const handleGoForward = () => {
-    if (navIndex < navHistory.length - 1) {
-      const next = navHistory[navIndex + 1];
-      setNavIndex(navIndex + 1);
-      setActiveView(next.view);
-      setActiveCollection(next.collection);
-      setActiveTag(next.tag);
-    }
-  };
+  const handleGoBack = () => {};
+  const handleGoForward = () => {};
 
   // Import Target Vault Modal state
   const [showImportVaultModal, setShowImportVaultModal] = useState(false);
@@ -358,58 +375,98 @@ const App: React.FC = () => {
 
   // Standalone Window Mode Render (100% full window studio view)
   if (standaloneAssetId) {
+    const handleStandaloneSelectAsset = (asset: Asset) => {
+      setStandaloneAsset(asset);
+    };
+
+    const handleStandaloneAssetsUpdated = async () => {
+      await loadStandaloneAssets();
+    };
+
     return (
-      <div style={{ width: '100vw', height: '100vh', background: 'var(--bg-base)', overflow: 'hidden' }}>
-        {standaloneAsset ? (
-          <FileViewerModal
-            asset={standaloneAsset}
-            allAssets={assets}
-            visible={true}
-            isPopOutWindow={true}
-            onClose={async () => {
-              try {
-                const { getCurrentWindow } = await import('@tauri-apps/api/window');
-                await getCurrentWindow().close();
-              } catch (e) {
-                window.close();
-              }
-            }}
-            onSelectAsset={setStandaloneAsset}
-            onAssetsUpdated={loadAssets}
-          />
-        ) : (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexDirection: 'column', gap: 12 }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
-            <span>Loading media preview...</span>
+      <div style={{ width: '100vw', height: '100vh', background: 'var(--bg-base)', overflow: 'hidden', display: 'flex' }}>
+        {/* Main Viewer Area */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          {standaloneAsset ? (
+            <FileViewerModal
+              asset={standaloneAsset}
+              allAssets={standaloneAllAssets}
+              visible={true}
+              isPopOutWindow={true}
+              onClose={async () => {
+                try {
+                  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+                  await getCurrentWindow().close();
+                } catch (e) {
+                  window.close();
+                }
+              }}
+              onSelectAsset={handleStandaloneSelectAsset}
+              onAssetsUpdated={handleStandaloneAssetsUpdated}
+              onToggleDetail={() => setStandaloneDetailVisible(v => !v)}
+              showDetailToggle={true}
+            />
+          ) : (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexDirection: 'column', gap: 12 }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
+              <span>Loading media preview...</span>
+            </div>
+          )}
+        </div>
+
+        {/* Detail Editor Sidebar */}
+        {standaloneDetailVisible && (
+          <div style={{ width: 300, minWidth: 300, height: '100vh', overflow: 'hidden', borderLeft: '1px solid var(--border-subtle)' }}>
+            <DetailPanel
+              asset={standaloneAsset}
+              visible={true}
+              onClose={() => setStandaloneDetailVisible(false)}
+              onAssetsUpdated={handleStandaloneAssetsUpdated}
+            />
           </div>
         )}
       </div>
     );
   }
 
+  const handlePopOutTab = async (tab: AppTab) => {
+    try {
+      const query = `standaloneTab=true&tabType=${tab.type}&tabId=${tab.id}&boardId=${tab.boardId || ''}&collectionId=${tab.collectionId || ''}&tag=${tab.tag || ''}`;
+      await invoke('spawn_tab_window', { query, title: tab.title });
+      closeTab(tab.id);
+    } catch (err) {
+      console.error("Failed to pop out tab:", err);
+    }
+  };
+
   return (
     <>
       <div className={`app-layout ${compactMode ? 'app-layout--compact' : ''}`}>
-      {/* Sidebar */}
-      <Sidebar
-        activeView={activeView}
-        onViewChange={handleNavViewChange}
-        activeCollection={activeCollection}
-        onCollectionChange={handleNavCollectionChange}
-        activeTag={activeTag}
-        onTagChange={handleNavTagChange}
-        onImport={() => setShowImportVaultModal(true)}
-        onSettings={() => setShowSettings(true)}
-        stats={{
-          library: assets.length,
-          boards: boards.length,
-          favorites: assets.filter(a => a.favorite).length,
-          untagged: assets.filter(a => !a.tags || a.tags.length === 0).length,
-        }}
-      />
+      {/* Sidebar - Hide in standalone tab mode */}
+      {!isStandaloneTab && (
+        <Sidebar
+          activeView={activeView}
+          onViewChange={handleNavViewChange}
+          activeCollection={activeCollection}
+          onCollectionChange={handleNavCollectionChange}
+          activeTag={activeTag}
+          onTagChange={handleNavTagChange}
+          onImport={() => setShowImportVaultModal(true)}
+          onSettings={() => setShowSettings(true)}
+          stats={{
+            library: assets.length,
+            boards: boards.length,
+            favorites: assets.filter(a => a.favorite).length,
+            untagged: assets.filter(a => !a.tags || a.tags.length === 0).length,
+          }}
+        />
+      )}
 
       {/* Content Area */}
       <div className="content-area">
+        {/* TabBar - Hide in standalone tab mode */}
+        {!isStandaloneTab && <TabBar onPopOutTab={handlePopOutTab} />}
+        
         {/* Toolbar */}
         <Toolbar
           viewMode={viewMode}
@@ -430,8 +487,8 @@ const App: React.FC = () => {
           showImageNames={showImageNames}
           onToggleImageNames={() => setShowImageNames(v => !v)}
           onImport={importFiles}
-          canGoBack={navIndex > 0}
-          canGoForward={navIndex < navHistory.length - 1}
+          canGoBack={false}
+          canGoForward={false}
           onGoBack={handleGoBack}
           onGoForward={handleGoForward}
         />
@@ -466,7 +523,7 @@ const App: React.FC = () => {
                 onAssetsUpdated={loadAssets}
               />
             ) : activeView === 'boards' ? (
-              isEditingBoardCanvas && activeBoardId ? (
+              isEditingBoardCanvas && currentBoardId ? (
                 <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
                   {/* Left: Media Drawer */}
                   <div style={{
@@ -619,9 +676,12 @@ const App: React.FC = () => {
                         {boards.map(b => (
                           <button
                             key={b.id}
-                            className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--ghost'}`}
-                            onClick={() => setActiveBoard(b.id)}
-                            style={{ padding: '4px 10px', fontSize: '12px', fontWeight: b.id === activeBoardId ? 600 : 400 }}
+                            className={`btn ${b.id === currentBoardId ? 'btn--primary' : 'btn--ghost'}`}
+                            onClick={() => {
+                              setActiveBoard(b.id);
+                              updateTabContext(activeTabId, { boardId: b.id });
+                            }}
+                            style={{ padding: '4px 10px', fontSize: '12px', fontWeight: b.id === currentBoardId ? 600 : 400 }}
                           >
                             {b.title}
                           </button>
@@ -639,12 +699,14 @@ const App: React.FC = () => {
                 <BoardsGallery
                   boards={boards}
                   onOpenBoard={(id) => {
-                    setActiveBoard(id);
-                    setIsEditingBoardCanvas(true);
+                    const board = boards.find(b => b.id === id);
+                    addTab({ type: 'boards', title: board?.title || 'Board', boardId: id });
                   }}
                   onCreateBoard={async (t) => {
-                    await createBoard(t);
-                    setIsEditingBoardCanvas(true);
+                    const newBoard = await createBoard(t);
+                    if (newBoard) {
+                      addTab({ type: 'boards', title: newBoard.title, boardId: newBoard.id });
+                    }
                   }}
                   onRenameBoard={renameBoard}
                   onDeleteBoard={deleteBoard}

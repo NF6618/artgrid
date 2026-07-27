@@ -780,4 +780,40 @@ pub fn open_standalone_window(app: AppHandle, asset_id: String, title: String) -
     }
 }
 
+#[tauri::command]
+pub fn spawn_tab_window(app: AppHandle, query: String, title: String) -> Result<(), String> {
+    let sanitized_title: String = title.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+    let window_label = format!("tab_{}_{}", sanitized_title, Utc::now().timestamp_millis());
 
+    let main_window = app.get_webview_window("main");
+    let target_url = if let Some(main_win) = main_window {
+        if let Ok(mut url) = main_win.url() {
+            url.set_query(Some(&query));
+            tauri::WebviewUrl::External(url)
+        } else {
+            tauri::WebviewUrl::App(format!("index.html?{}", query).into())
+        }
+    } else {
+        tauri::WebviewUrl::App(format!("index.html?{}", query).into())
+    };
+
+    println!("ARTGRID: Spawning tab window '{}' with URL {:?}", window_label, target_url);
+
+    let res = tauri::WebviewWindowBuilder::new(
+        &app,
+        window_label,
+        target_url
+    )
+    .title(format!("ArtGrid — {}", title))
+    .inner_size(1200.0, 850.0)
+    .decorations(true)
+    .resizable(true)
+    .shadow(true)
+    .center()
+    .build();
+
+    match res {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.to_string())
+    }
+}

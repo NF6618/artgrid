@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useMetadataStore } from '../stores/useMetadataStore';
 import { Asset } from './Gallery';
-import { IconClose, IconPlus, IconArchive, IconTrash, IconMaximize } from './Icons';
+import { IconClose, IconPlus, IconArchive, IconTrash, IconMaximize, IconPencil } from './Icons';
 import { invoke } from '@tauri-apps/api/core';
 
 interface DetailPanelProps {
@@ -20,19 +20,17 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
   const [notesText, setNotesText] = useState('');
   const debounceTimerRef = useRef<any>(null);
 
-  // Title & Filename editing state
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [editTitle, setEditTitle] = useState('');
-  const [isEditingFilename, setIsEditingFilename] = useState(false);
-  const [editFilename, setEditFilename] = useState('');
+  // Unified Name editing state (updates both title and filename together)
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState('');
 
   useEffect(() => {
     if (asset) {
       setNotesText(asset.notes || '');
-      setEditTitle(asset.title);
-      setEditFilename(asset.filename);
-      setIsEditingTitle(false);
-      setIsEditingFilename(false);
+      // Derive editable name from title (or filename without extension)
+      const nameWithoutExt = asset.title || asset.filename.replace(/\.[^.]+$/, '');
+      setEditName(nameWithoutExt);
+      setIsEditingName(false);
     }
   }, [asset]);
 
@@ -69,25 +67,20 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
     if (onAssetsUpdated) onAssetsUpdated();
   };
 
-  const handleSaveTitle = async () => {
-    if (!asset || !editTitle.trim()) return;
+  // Unified save: updates both title and filename (name + original extension)
+  const handleSaveName = async () => {
+    if (!asset || !editName.trim()) return;
+    const originalExt = asset.filename.includes('.') 
+      ? '.' + asset.filename.split('.').pop() 
+      : '';
+    const newTitle = editName.trim();
+    const newFilename = newTitle + originalExt;
     try {
-      await invoke('rename_asset', { id: asset.id, newTitle: editTitle.trim(), newFilename: asset.filename });
-      setIsEditingTitle(false);
+      await invoke('rename_asset', { id: asset.id, newTitle, newFilename });
+      setIsEditingName(false);
       if (onAssetsUpdated) onAssetsUpdated();
     } catch (err) {
-      console.error('Failed to rename asset title:', err);
-    }
-  };
-
-  const handleSaveFilename = async () => {
-    if (!asset || !editFilename.trim()) return;
-    try {
-      await invoke('rename_asset', { id: asset.id, newTitle: asset.title, newFilename: editFilename.trim() });
-      setIsEditingFilename(false);
-      if (onAssetsUpdated) onAssetsUpdated();
-    } catch (err) {
-      console.error('Failed to rename asset filename:', err);
+      console.error('Failed to rename asset:', err);
     }
   };
 
@@ -209,46 +202,34 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Info</div>
           
-          {/* Title Field */}
+          {/* Unified Name Field (updates both title + filename) */}
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Name</span>
-            {isEditingTitle ? (
+            {isEditingName ? (
               <div style={{ display: 'flex', gap: 4, flex: 1 }}>
                 <input 
                   autoFocus
-                  value={editTitle}
-                  onChange={e => setEditTitle(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSaveTitle()}
-                  style={{ flex: 1, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', padding: '2px 6px', borderRadius: 4 }}
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleSaveName();
+                    if (e.key === 'Escape') setIsEditingName(false);
+                  }}
+                  style={{ flex: 1, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--accent-primary)', padding: '2px 6px', borderRadius: 4, outline: 'none' }}
                 />
-                <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={handleSaveTitle}>Save</button>
+                <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={handleSaveName}>Save</button>
               </div>
             ) : (
-              <span className="detail-panel__field-value" style={{ cursor: 'pointer' }} onClick={() => setIsEditingTitle(true)} title="Click to rename title">
-                {asset.title} ✏️
+              <span className="detail-panel__field-value" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => setIsEditingName(true)} title="Click to rename (updates title + filename)">
+                {asset.title} <IconPencil size={10} />
               </span>
             )}
           </div>
 
-          {/* Filename Field */}
+          {/* Read-only filename metadata */}
           <div className="detail-panel__field">
             <span className="detail-panel__field-label">Filename</span>
-            {isEditingFilename ? (
-              <div style={{ display: 'flex', gap: 4, flex: 1 }}>
-                <input 
-                  autoFocus
-                  value={editFilename}
-                  onChange={e => setEditFilename(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSaveFilename()}
-                  style={{ flex: 1, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', padding: '2px 6px', borderRadius: 4 }}
-                />
-                <button className="btn btn--primary" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={handleSaveFilename}>Save</button>
-              </div>
-            ) : (
-              <span className="detail-panel__field-value" style={{ cursor: 'pointer' }} onClick={() => setIsEditingFilename(true)} title="Click to rename filename">
-                {asset.filename} ✏️
-              </span>
-            )}
+            <span className="detail-panel__field-value" style={{ opacity: 0.7, fontSize: '11px' }}>{asset.filename}</span>
           </div>
 
           <div className="detail-panel__field">

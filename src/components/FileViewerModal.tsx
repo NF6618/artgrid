@@ -14,6 +14,7 @@ import {
   IconScissors,
   IconCamera,
   IconImage,
+  IconInfo,
 } from './Icons';
 
 // Set up pdf.js worker
@@ -85,6 +86,8 @@ interface FileViewerModalProps {
   onSelectAsset?: (asset: Asset) => void;
   onAssetsUpdated?: () => void;
   isPopOutWindow?: boolean;
+  onToggleDetail?: () => void;
+  showDetailToggle?: boolean;
 }
 
 const renderFormattedMarkdown = (text: string) => {
@@ -109,6 +112,8 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   onSelectAsset,
   onAssetsUpdated,
   isPopOutWindow: isPopOutProp = false,
+  onToggleDetail,
+  showDetailToggle = false,
 }) => {
   const { vaultPath } = useSettingsStore();
 
@@ -784,6 +789,18 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
           >
             <IconMaximize size={15} />
           </button>
+
+          {/* Detail Panel Toggle (visible in standalone window) */}
+          {showDetailToggle && onToggleDetail && (
+            <button 
+              className="toolbar__btn"
+              onClick={(e) => { e.stopPropagation(); onToggleDetail(); }}
+              title="Toggle Detail Editor Panel"
+              style={{ width: 32, height: 32, minWidth: 32 }}
+            >
+              <IconInfo size={15} />
+            </button>
+          )}
 
           <button 
             className="toolbar__btn" 

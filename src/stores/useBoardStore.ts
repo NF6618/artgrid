@@ -9,7 +9,7 @@ interface BoardState {
   isLoading: boolean;
 
   loadBoards: () => Promise<void>;
-  createBoard: (title: string) => Promise<void>;
+  createBoard: (title: string) => Promise<Board | null>;
   updateBoardNodes: (boardId: string, nodes: ArtGridNode[]) => Promise<void>;
   renameBoard: (boardId: string, newTitle: string) => Promise<void>;
   deleteBoard: (boardId: string) => Promise<void>;
@@ -50,8 +50,10 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         boards: [...state.boards, newBoard],
         activeBoardId: newBoard.id,
       }));
+      return newBoard;
     } catch (err) {
       console.error('Failed to create board:', err);
+      return null;
     }
   },
 
