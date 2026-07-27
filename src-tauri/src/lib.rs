@@ -61,6 +61,7 @@ pub fn run() {
             import::import_db_backup,
             import::clear_temp_cache,
             import::purge_all_data,
+            import::open_standalone_window,
             board::get_boards,
             board::create_board,
             board::save_board,

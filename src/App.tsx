@@ -67,8 +67,12 @@ const App: React.FC = () => {
   const handleOpenPreviewAsset = useCallback(async (asset: Asset) => {
     try {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const label = `artgrid_viewer_${asset.id}_${Date.now()}`;
-      const popoutUrl = `${window.location.origin}${window.location.pathname}?previewAssetId=${asset.id}`;
+      const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const label = `viewer_${sanitizedId}_${Date.now()}`;
+      const origin = window.location.origin;
+      const pathname = window.location.pathname;
+      const popoutUrl = `${origin}${pathname}?previewAssetId=${encodeURIComponent(asset.id)}`;
+      
       new WebviewWindow(label, {
         url: popoutUrl,
         title: `ArtGrid Media Viewer — ${asset.title}`,
@@ -81,8 +85,12 @@ const App: React.FC = () => {
         center: true,
       });
     } catch (e) {
-      console.warn("Falling back to inline preview modal:", e);
-      setPreviewAsset(asset);
+      console.warn("WebviewWindow fallback to Rust command or inline preview:", e);
+      try {
+        await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
+      } catch (err) {
+        setPreviewAsset(asset);
+      }
     }
   }, []);
 
@@ -90,19 +98,16 @@ const App: React.FC = () => {
     (window as any).__artgridOpenPreviewAsset = (asset: Asset) => handleOpenPreviewAsset(asset);
   }, [handleOpenPreviewAsset]);
 
-  // Auto open asset preview if launched in standalone popout window
+  // Check if running in Standalone Window Mode
+  const standaloneAssetId = new URLSearchParams(window.location.search).get('previewAssetId');
+  const [standaloneAsset, setStandaloneAsset] = useState<Asset | null>(null);
+
   useEffect(() => {
-    if (assets.length > 0) {
-      const params = new URLSearchParams(window.location.search);
-      const targetAssetId = params.get('previewAssetId');
-      if (targetAssetId) {
-        const found = assets.find(a => a.id === targetAssetId);
-        if (found) {
-          setPreviewAsset(found);
-        }
-      }
+    if (standaloneAssetId && assets.length > 0) {
+      const found = assets.find(a => a.id === standaloneAssetId);
+      if (found) setStandaloneAsset(found);
     }
-  }, [assets]);
+  }, [standaloneAssetId, assets]);
   
   const { boards, activeBoardId, loadBoards, createBoard, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
 
@@ -339,6 +344,37 @@ const App: React.FC = () => {
       default: return 'Library';
     }
   };
+
+  // Standalone Window Mode Render (100% full window studio view)
+  if (standaloneAssetId) {
+    return (
+      <div style={{ width: '100vw', height: '100vh', background: 'var(--bg-base)', overflow: 'hidden' }}>
+        {standaloneAsset ? (
+          <FileViewerModal
+            asset={standaloneAsset}
+            allAssets={assets}
+            visible={true}
+            isPopOutWindow={true}
+            onClose={async () => {
+              try {
+                const { getCurrentWindow } = await import('@tauri-apps/api/window');
+                await getCurrentWindow().close();
+              } catch (e) {
+                window.close();
+              }
+            }}
+            onSelectAsset={setStandaloneAsset}
+            onAssetsUpdated={loadAssets}
+          />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexDirection: 'column', gap: 12 }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
+            <span>Loading media preview...</span>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <>

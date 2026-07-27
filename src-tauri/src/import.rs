@@ -735,4 +735,27 @@ pub fn purge_all_data(state: State<'_, AppState>) -> Result<String, String> {
     Ok("All application data, temporary cache, and vault database have been completely reset.".to_string())
 }
 
+#[tauri::command]
+pub fn open_standalone_window(app: AppHandle, asset_id: String, title: String) -> Result<(), String> {
+    let sanitized_id: String = asset_id.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+    let window_label = format!("viewer_{}_{}", sanitized_id, Utc::now().timestamp_millis());
+    let url = format!("index.html?previewAssetId={}", asset_id);
+
+    match tauri::WebviewWindowBuilder::new(
+        &app,
+        window_label,
+        tauri::WebviewUrl::App(url.into())
+    )
+    .title(format!("ArtGrid Media Viewer — {}", title))
+    .inner_size(1200.0, 850.0)
+    .decorations(true)
+    .resizable(true)
+    .shadow(true)
+    .center()
+    .build() {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 

@@ -84,6 +84,7 @@ interface FileViewerModalProps {
   onClose: () => void;
   onSelectAsset?: (asset: Asset) => void;
   onAssetsUpdated?: () => void;
+  isPopOutWindow?: boolean;
 }
 
 const renderFormattedMarkdown = (text: string) => {
@@ -106,15 +107,20 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   visible, 
   onClose, 
   onSelectAsset,
-  onAssetsUpdated 
+  onAssetsUpdated,
+  isPopOutWindow: isPopOutProp = false,
 }) => {
   const { vaultPath } = useSettingsStore();
 
   const [textContent, setTextContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
 
-  // Pop-out Window / Floating Studio Mode - DEFAULT TO TRUE
-  const [isPopOutWindow, setIsPopOutWindow] = useState(true);
+  // Pop-out Window / Floating Studio Mode
+  const [isPopOutWindow, setIsPopOutWindow] = useState(isPopOutProp);
+
+  useEffect(() => {
+    if (isPopOutProp) setIsPopOutWindow(true);
+  }, [isPopOutProp]);
 
   // Auto spawn popout window when asset is opened
   useEffect(() => {
@@ -318,26 +324,30 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   const handleSpawnPopOutWindow = async () => {
     if (!asset) return;
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const label = `artgrid_viewer_${Date.now()}`;
-      const popoutUrl = `${window.location.origin}${window.location.pathname}?previewAssetId=${asset.id}`;
-      const webview = new WebviewWindow(label, {
-        url: popoutUrl,
-        title: `ArtGrid Media Viewer — ${asset.title}`,
-        width: 1200,
-        height: 850,
-        decorations: true,
-        resizable: true,
-        shadow: true,
-        focus: true,
-        center: true,
-      });
-      webview.once('tauri://created', () => {
-        onClose();
-      });
+      await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
+      onClose();
     } catch (e) {
-      console.warn("Tauri WebviewWindow popout fallback:", e);
-      setIsPopOutWindow(true);
+      console.warn("Rust open_standalone_window failed, trying WebviewWindow fallback:", e);
+      try {
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const label = `viewer_${sanitizedId}_${Date.now()}`;
+        const popoutUrl = `${window.location.origin}${window.location.pathname}?previewAssetId=${asset.id}`;
+        new WebviewWindow(label, {
+          url: popoutUrl,
+          title: `ArtGrid Media Viewer — ${asset.title}`,
+          width: 1200,
+          height: 850,
+          decorations: true,
+          resizable: true,
+          shadow: true,
+          focus: true,
+          center: true,
+        });
+        onClose();
+      } catch (err) {
+        setIsPopOutWindow(true);
+      }
     }
   };
 
