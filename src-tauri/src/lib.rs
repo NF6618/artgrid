@@ -52,8 +52,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             import::open_vault,
+            import::create_vault,
+            import::open_vault_with_options,
             import::get_assets,
             import::import_file,
+            import::import_batch_files,
+            import::scan_vault_media,
             import::import_from_url,
             import::save_base64_image_asset,
             import::save_text_asset,

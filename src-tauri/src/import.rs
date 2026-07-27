@@ -885,3 +885,230 @@ pub fn spawn_tab_window(app: AppHandle, query: String, title: String) -> Result<
         Err(e) => Err(e.to_string())
     }
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImportProgressPayload {
+    pub current: usize,
+    pub total: usize,
+    pub current_file: String,
+    pub phase: String,
+    pub percent: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BatchImportResult {
+    pub imported_count: usize,
+    pub failed_count: usize,
+    pub errors: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn import_batch_files(
+    files: Vec<String>,
+    move_files: bool,
+    folder_id: Option<String>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BatchImportResult, String> {
+    let total = files.len();
+    let mut imported_count = 0;
+    let mut failed_count = 0;
+    let mut errors = Vec::new();
+    
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc"];
+    
+    for (idx, file_path) in files.into_iter().enumerate() {
+        let source_path = PathBuf::from(&file_path);
+        if !source_path.exists() {
+            failed_count += 1;
+            errors.push(format!("File not found: {}", file_path));
+            continue;
+        }
+        
+        let filename = source_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let ext = source_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+        
+        if !supported_exts.contains(&ext.as_str()) {
+            failed_count += 1;
+            errors.push(format!("Unsupported type: {}", filename));
+            continue;
+        }
+
+        // Emit real-time progress to frontend
+        use tauri::Emitter;
+        let percent = ((idx + 1) as f64 / total as f64) * 100.0;
+        let phase = if move_files { "Moving & processing..." } else { "Copying & processing..." };
+        app.emit("import-progress", ImportProgressPayload {
+            current: idx + 1,
+            total,
+            current_file: filename.clone(),
+            phase: phase.to_string(),
+            percent,
+        }).ok();
+
+        // Perform import logic safely
+        let db_lock = state.db.lock().unwrap();
+        let conn = match db_lock.as_ref() {
+            Some(c) => c,
+            None => {
+                return Err("No vault opened".to_string());
+            }
+        };
+
+        let vault_lock = state.vault_path.lock().unwrap();
+        let vault_path = match vault_lock.as_ref() {
+            Some(p) => p,
+            None => {
+                return Err("No vault path".to_string());
+            }
+        };
+
+        let id = Uuid::new_v4().to_string();
+        let new_filename = format!("{}.{}", id, ext);
+        let dest_rel_path = PathBuf::from("artgrid").join("media").join(&new_filename);
+        let dest_abs_path = vault_path.join(&dest_rel_path);
+
+        if let Some(parent) = dest_abs_path.parent() {
+            if !parent.exists() {
+                let _ = fs::create_dir_all(parent);
+            }
+        }
+
+        // Transfer file: Move (rename or copy+remove) vs Copy
+        let file_transferred = if move_files {
+            if fs::rename(&source_path, &dest_abs_path).is_ok() {
+                true
+            } else {
+                // Fallback for cross-partition moves
+                if fs::copy(&source_path, &dest_abs_path).is_ok() {
+                    let _ = fs::remove_file(&source_path);
+                    true
+                } else {
+                    false
+                }
+            }
+        } else {
+            fs::copy(&source_path, &dest_abs_path).is_ok()
+        };
+
+        if !file_transferred {
+            failed_count += 1;
+            errors.push(format!("Failed to transfer: {}", filename));
+            continue;
+        }
+
+        let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
+        let (palette, color_profile) = extract_color_palette(&dest_abs_path);
+        let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
+        let metadata = fs::metadata(&dest_abs_path).ok();
+        let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+        let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
+        let now = Utc::now().to_rfc3339();
+        let url = dest_abs_path.to_string_lossy().into_owned();
+
+        let type_ = match ext.as_str() {
+            "md" | "txt" => "text/plain".to_string(),
+            "pdf" => "application/pdf".to_string(),
+            "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+            _ => format!("image/{}", ext)
+        };
+
+        let insert_res = conn.execute(
+            "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?13)",
+            (
+                &id, &filename, &filename, &dest_rel_path.to_string_lossy().into_owned(),
+                &type_, &size_str, &width, &height, &now, &url, &palette_json, &color_profile, &folder_id
+            ),
+        );
+
+        if insert_res.is_ok() {
+            imported_count += 1;
+            if let Some(pipeline) = app.try_state::<crate::ai::pipeline::AiPipeline>() {
+                pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { asset_id: id });
+            }
+        } else {
+            failed_count += 1;
+            errors.push(format!("DB insert failed for {}", filename));
+        }
+
+        // Brief yield so main UI thread is smooth and responsive
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+    }
+
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+
+    Ok(BatchImportResult {
+        imported_count,
+        failed_count,
+        errors,
+    })
+}
+
+#[tauri::command]
+pub fn scan_vault_media(state: State<'_, AppState>, app: AppHandle) -> Result<usize, String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+    
+    let media_dir = vault_path.join("artgrid").join("media");
+    if !media_dir.exists() {
+        return Ok(0);
+    }
+    
+    let mut added_count = 0;
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc"];
+
+    if let Ok(entries) = fs::read_dir(&media_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() { continue; }
+            
+            let ext = path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+            if !supported_exts.contains(&ext.as_str()) { continue; }
+            
+            let filename = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let dest_rel_path = PathBuf::from("artgrid").join("media").join(&filename);
+            let rel_str = dest_rel_path.to_string_lossy().into_owned();
+
+            let mut stmt = conn.prepare("SELECT COUNT(*) FROM assets WHERE filename = ?1 OR filepath = ?2").map_err(|e| e.to_string())?;
+            let count: i64 = stmt.query_row([&filename, &rel_str], |r| r.get(0)).unwrap_or(0);
+            
+            if count == 0 {
+                let id = Uuid::new_v4().to_string();
+                let (width, height) = image::image_dimensions(&path).unwrap_or((0, 0));
+                let (palette, color_profile) = extract_color_palette(&path);
+                let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
+                let metadata = fs::metadata(&path).ok();
+                let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+                let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
+                let now = Utc::now().to_rfc3339();
+                let url = path.to_string_lossy().into_owned();
+                
+                let type_ = match ext.as_str() {
+                    "md" | "txt" => "text/plain".to_string(),
+                    "pdf" => "application/pdf".to_string(),
+                    "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+                    _ => format!("image/{}", ext)
+                };
+                
+                conn.execute(
+                    "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id) 
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, NULL)",
+                    (
+                        &id, &filename, &filename, &rel_str,
+                        &type_, &size_str, &width, &height, &now, &url, &palette_json, &color_profile
+                    ),
+                ).ok();
+                added_count += 1;
+            }
+        }
+    }
+    
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+    Ok(added_count)
+}
