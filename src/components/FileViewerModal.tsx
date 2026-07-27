@@ -122,13 +122,6 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
     if (isPopOutProp) setIsPopOutWindow(true);
   }, [isPopOutProp]);
 
-  // Auto spawn popout window when asset is opened
-  useEffect(() => {
-    if (visible && asset) {
-      handleSpawnPopOutWindow();
-    }
-  }, [visible, asset?.id]);
-
   // Image editing studio
   const [showEditStudio, setShowEditStudio] = useState(false);
   const [brightness, setBrightness] = useState(100);
@@ -324,26 +317,29 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   const handleSpawnPopOutWindow = async () => {
     if (!asset) return;
     try {
-      await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const label = `viewer_${sanitizedId}_${Date.now()}`;
+      const origin = window.location.origin;
+      const pathname = window.location.pathname;
+      const popoutUrl = `${origin}${pathname}?previewAssetId=${encodeURIComponent(asset.id)}`;
+
+      new WebviewWindow(label, {
+        url: popoutUrl,
+        title: `ArtGrid Media Viewer — ${asset.title}`,
+        width: 1200,
+        height: 850,
+        decorations: true,
+        resizable: true,
+        shadow: true,
+        focus: true,
+        center: true,
+      });
       onClose();
     } catch (e) {
-      console.warn("Rust open_standalone_window failed, trying WebviewWindow fallback:", e);
+      console.warn("Falling back to Rust open_standalone_window:", e);
       try {
-        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-        const sanitizedId = asset.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const label = `viewer_${sanitizedId}_${Date.now()}`;
-        const popoutUrl = `${window.location.origin}${window.location.pathname}?previewAssetId=${asset.id}`;
-        new WebviewWindow(label, {
-          url: popoutUrl,
-          title: `ArtGrid Media Viewer — ${asset.title}`,
-          width: 1200,
-          height: 850,
-          decorations: true,
-          resizable: true,
-          shadow: true,
-          focus: true,
-          center: true,
-        });
+        await invoke('open_standalone_window', { assetId: asset.id, title: asset.title });
         onClose();
       } catch (err) {
         setIsPopOutWindow(true);
