@@ -186,6 +186,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </select>
                     </label>
 
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginTop: 8 }}>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.enableVerboseLogging ?? true} 
+                        onChange={(e) => { setSettings({...settings, enableVerboseLogging: e.target.checked}); setHasChanges(true); }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 500 }}>Enable Verbose Logging on Startup</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Opens dedicated log stream window showing console errors, network traffic, IPC calls, and Rust traces</div>
+                      </div>
+                    </label>
+
                     <div style={{ fontSize: '11px', color: '#cbd5e1', background: 'rgba(124, 107, 240, 0.1)', padding: '10px 14px', borderRadius: 6, border: '1px solid rgba(124, 107, 240, 0.25)', lineHeight: 1.4 }}>
                       💡 <strong>Tip for Large Imports:</strong> When importing 100MB+ files or multi-gigabyte collections, select <strong>Move Files</strong> to transfer files instantly without taking up double disk space.
                     </div>

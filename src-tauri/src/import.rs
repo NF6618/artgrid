@@ -12,6 +12,21 @@ pub struct AppState {
     pub vault_path: Mutex<Option<PathBuf>>,
 }
 
+#[tauri::command]
+pub fn log_telemetry(level: String, message: String, category: String) {
+    let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
+    let color_code = match level.as_str() {
+        "ERROR" => "\x1b[31;1m", // Red
+        "WARN" => "\x1b[33;1m",  // Yellow
+        "NETWORK" => "\x1b[36m", // Cyan
+        _ => "\x1b[32m",        // Green
+    };
+    println!(
+        "[{}] {}[ARTGRID:{}:{}]: {}\x1b[0m",
+        timestamp, color_code, category.to_uppercase(), level.to_uppercase(), message
+    );
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AssetData {
     pub id: String,

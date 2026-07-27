@@ -51,6 +51,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            import::log_telemetry,
             import::open_vault,
             import::create_vault,
             import::open_vault_with_options,

@@ -221,15 +221,32 @@ if (shouldWipeData) {
   console.log();
 }
 
-// ── Done — launch tauri dev ───────────────────────────────────────────────────
+// ── Done — launch tauri dev with verbose log stream ─────────────────────────────
 
-console.log(`${GRN}${BOLD}  ✔  Launching tauri dev…${RESET}`);
+console.log(`${GRN}${BOLD}  ✔  Launching tauri dev with Verbose Logging enabled…${RESET}`);
+console.log(`${CYN}  ℹ  Opening dedicated CMD stream window: "ArtGrid — Verbose Dev & Network Log Stream"${RESET}`);
 console.log();
 
+// Enable Rust & Tauri trace logging
+process.env.RUST_LOG = 'artgrid=trace,tauri=info';
+process.env.VERBOSE_LOG = 'true';
+
+if (process.platform === 'win32') {
+  // Spawn separate CMD window titled "ArtGrid — Verbose Dev & Network Log Stream"
+  spawn('cmd.exe', ['/c', 'start', 'ArtGrid — Verbose Dev & Network Log Stream', 'cmd.exe', '/k', 'npm run tauri dev'], {
+    cwd: projectRoot,
+    detached: true,
+    stdio: 'ignore',
+    shell: true,
+  });
+}
+
+// Also run in current terminal window for seamless interaction
 const child = spawn('npm', ['run', 'tauri', 'dev'], {
   cwd: projectRoot,
   stdio: 'inherit',
   shell: true,
+  env: { ...process.env, RUST_LOG: 'artgrid=trace,tauri=info', VERBOSE_LOG: 'true' }
 });
 
 child.on('exit', code => process.exit(code ?? 0));

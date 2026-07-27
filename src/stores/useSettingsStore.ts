@@ -28,6 +28,7 @@ export interface AppSettings {
   tldrawGridStyle?: 'dots' | 'lines' | 'none';
   tldrawSnapToGrid?: boolean;
   importMode?: 'copy' | 'move';
+  enableVerboseLogging?: boolean;
 }
 
 interface SettingsState extends AppSettings {
@@ -48,6 +49,7 @@ const defaultSettings: AppSettings = {
   autoWatch: true,
   compactMode: false,
   importMode: 'copy',
+  enableVerboseLogging: true,
   bgBaseColor: '#0a0a0f',
   bgSecondaryColor: '#16161f',
   accentColor: '#7c6bf0',
