@@ -3,7 +3,7 @@
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use tauri_plugin_log::{Target, TargetKind};
 use std::sync::Mutex;
 
@@ -29,6 +29,10 @@ pub fn run() {
             Target::new(TargetKind::LogDir { file_name: Some("artgrid.log".into()) }),
             Target::new(TargetKind::Webview),
         ]).level(log::LevelFilter::Trace).build())
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            println!("A new instance was launched with args: {:?}", argv);
+            let _ = app.emit("deep-link-received", argv);
+        }))
         .setup(|app| {
             println!("ARTGRID: Setup hook running...");
             
@@ -45,6 +49,7 @@ pub fn run() {
             import::open_vault,
             import::get_assets,
             import::import_file,
+            import::import_from_url,
             import::toggle_favorite,
             board::get_boards,
             board::create_board,
@@ -53,7 +58,10 @@ pub fn run() {
             metadata::get_collections,
             metadata::create_collection,
             metadata::get_tags,
-            metadata::add_tag_to_asset
+            metadata::add_tag_to_asset,
+            metadata::remove_tag_from_asset,
+            metadata::add_asset_to_collection,
+            metadata::remove_asset_from_collection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

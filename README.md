@@ -18,40 +18,28 @@ Instead of fragmenting your creative assets across cloud services, messy local f
 - **Obsidian-Style Vaults:** Pick any folder on your computer to act as your "Vault". Easily sync it with Dropbox, Google Drive, or Syncthing. Track multiple vaults for different major projects.
 - **Frictionless Capture:** Drop files directly into your Vault folder, and our **Background File System Watcher** will instantly detect, parse, and organize them into your UI without you lifting a finger.
 - **Infinite Canvas:** Organize your references spatially on a hardware-accelerated, PixiJS-powered unbounded canvas capable of handling thousands of high-res images.
-- **Versatile Document Support:** Don't just save images. ArtGrid natively supports reading `.pdf`, `.md`, and `.txt` files directly in its integrated full-screen lightbox.
 
 ---
 
-## 🚀 Key Features
-
-### 📁 The Vault Architecture
-ArtGrid respects your file system. It stores your assets in a unified "Vault". 
-- **Auto-Watching:** The Rust backend continuously monitors the `media/` directory inside your vault. Dropping a file in via Windows Explorer or Finder automatically pulls it into ArtGrid within milliseconds.
-- **SQLite Powered:** All metadata (tags, favorites, dimensions) is indexed in an ultra-fast local SQLite database (`artgrid.db`).
-
-### 🖼️ Infinite Mood Boards (Canvas)
-- Hardware-accelerated rendering via **PixiJS**.
-- Dedicated tools for Panning, Selecting, and navigating massive boards via the Minimap.
-- Seamlessly drag assets from your library onto multiple interconnected boards.
-
-### 🎛️ Fleshed-Out Interface
-- **Dynamic Sidebar:** Instantly filter your massive library using intelligent Quick Access links (Favorites, Untagged, Recent).
-- **Settings Hub:** Deep customization including Light/Dark themes, Compact Mode layouts, Keybind mappings, and Vault management.
-- **File Lightbox:** Double-click any asset to launch a beautiful, native full-screen viewer for your images and documents.
+## 🚀 Current Features
+- **Vault Auto-Watching**: The Rust backend continuously monitors the `media/` directory. Dropping a file in via Windows Explorer automatically pulls it into ArtGrid within milliseconds.
+- **Hardware-Accelerated Mood Boards**: Infinite panning, zooming, and dynamic layout powered by WebGL/PixiJS.
+- **Deep Linking**: Trigger web-imports directly to your vault from the terminal or browser extensions using `artgrid://save?url=...`.
+- **Smart Filtering**: Robust tagging, collection assignment, and instant search utilizing a local SQLite index.
+- **Frustum Culling Optimization**: Canvas rendering is aggressively optimized to cull off-screen textures, maintaining 60FPS on massive boards.
 
 ---
 
-## 📚 Documentation
-
-Comprehensive project documentation, feature specifications, and development roadmaps can be found in the `/docs` directory:
-- [Features Specification](./docs/features.md) - Deep dive into all planned and current features.
-- [Project Tasks & Phases](./docs/tasks.md) - Our current development roadmap and progress tracker.
+## 🗺️ Product Roadmap
+We are actively developing new tools to enhance creative workflows and integrate with existing ecosystems. Please see our detailed roadmaps in the `/docs` folder:
+- [Issue Tracker](./docs/issue_tracker.md) - Current known UI/UX issues being resolved.
+- [QA Plan](./docs/QA_plan.md) - Our strict local-first testing philosophy.
+- [Integration Roadmap](./docs/integration_roadmap.md) - Upcoming Chrome Extension, Pinterest Sync, and Cosmos Import.
+- [QOL Roadmap](./docs/qol_roadmap.md) - Artist-focused features like Storyboarding, Canvas Drawing, and Project Scoping.
 
 ---
 
 ## 🛠️ Development Setup
-
-ArtGrid leverages a dual-architecture: a blisteringly fast **Rust** backend handling OS-level APIs and SQLite, and a rich **React/Vite** frontend for the UI.
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v18+)
@@ -61,17 +49,9 @@ ArtGrid leverages a dual-architecture: a blisteringly fast **Rust** backend hand
 ### Running Locally
 
 ```bash
-# 1. Install Node dependencies
 npm install
-
-# 2. Start the development server and compile the Rust backend
 npm run tauri dev
 ```
-
-### Recommended IDE Setup
-- [VS Code](https://code.visualstudio.com/) 
-- [Tauri Extension](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) 
-- [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
 
 ---
 *Built with ❤️ for creatives everywhere.*

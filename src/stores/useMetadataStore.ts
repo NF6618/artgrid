@@ -22,6 +22,9 @@ interface MetadataState {
   loadMetadata: () => Promise<void>;
   createCollection: (name: string, color: string, parent_id?: string) => Promise<Collection>;
   addTagToAsset: (assetId: string, tagName: string) => Promise<Tag>;
+  removeTagFromAsset: (assetId: string, tagName: string) => Promise<void>;
+  addAssetToCollection: (assetId: string, collectionId: string) => Promise<void>;
+  removeAssetFromCollection: (assetId: string, collectionId: string) => Promise<void>;
 }
 
 export const useMetadataStore = create<MetadataState>((set, get) => ({
@@ -54,6 +57,21 @@ export const useMetadataStore = create<MetadataState>((set, get) => ({
     const tag: Tag = await invoke('add_tag_to_asset', { assetId, tagName });
     await get().loadMetadata();
     return tag;
+  },
+
+  removeTagFromAsset: async (assetId, tagName) => {
+    await invoke('remove_tag_from_asset', { assetId, tagName });
+    await get().loadMetadata();
+  },
+
+  addAssetToCollection: async (assetId, collectionId) => {
+    await invoke('add_asset_to_collection', { assetId, collectionId });
+    await get().loadMetadata();
+  },
+
+  removeAssetFromCollection: async (assetId, collectionId) => {
+    await invoke('remove_asset_from_collection', { assetId, collectionId });
+    await get().loadMetadata();
   }
 }));
 

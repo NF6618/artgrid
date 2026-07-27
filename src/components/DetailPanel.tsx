@@ -10,7 +10,7 @@ interface DetailPanelProps {
 }
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClose }) => {
-  const { addTagToAsset } = useMetadataStore();
+  const { addTagToAsset, removeTagFromAsset, collections, addAssetToCollection, removeAssetFromCollection } = useMetadataStore();
   const [newTag, setNewTag] = useState('');
   const [isAddingTag, setIsAddingTag] = useState(false);
 
@@ -129,7 +129,15 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
           <div className="detail-panel__section-title">Tags</div>
           <div className="tags">
             {asset.tags.map(tag => (
-              <span key={tag} className="tag">{tag}</span>
+              <span key={tag} className="tag">
+                {tag}
+                <span 
+                  style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
+                  onClick={() => removeTagFromAsset(asset.id, tag)}
+                >
+                  ×
+                </span>
+              </span>
             ))}
             {isAddingTag ? (
               <input 
@@ -201,10 +209,47 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
         <div className="detail-panel__section">
           <div className="detail-panel__section-title">Collections</div>
           <div className="tags">
-            <span className="tag tag--add">
-              <IconPlus size={10} />
-              Add to Collection
-            </span>
+            {asset.collections?.map(colId => {
+               // Find collection name in store (flatten the tree for simplicity or just search)
+               const findName = (cols: any[], id: string): string => {
+                 for (const c of cols) {
+                   if (c.id === id) return c.name;
+                   if (c.children) {
+                     const n = findName(c.children, id);
+                     if (n) return n;
+                   }
+                 }
+                 return id;
+               };
+               const colName = findName(collections, colId);
+               return (
+                 <span key={colId} className="tag" style={{ background: 'var(--bg-tertiary)' }}>
+                   {colName}
+                   <span 
+                     style={{ cursor: 'pointer', marginLeft: 6, opacity: 0.6 }} 
+                     onClick={() => removeAssetFromCollection(asset.id, colId)}
+                   >
+                     ×
+                   </span>
+                 </span>
+               );
+            })}
+            
+            <select 
+              className="tag tag--add" 
+              style={{ background: 'transparent', border: '1px dashed var(--border-subtle)', outline: 'none', cursor: 'pointer' }}
+              value=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  addAssetToCollection(asset.id, e.target.value);
+                }
+              }}
+            >
+              <option value="" disabled>+ Add</option>
+              {collections.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

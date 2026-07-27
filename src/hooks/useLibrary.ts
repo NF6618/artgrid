@@ -14,10 +14,11 @@ export function useLibrary() {
     try {
       const data: Asset[] = await invoke('get_assets');
       
+      const now = Date.now();
       // Convert absolute local paths to asset:// protocol URLs for webview display
       const processedData = data.map(asset => ({
         ...asset,
-        url: convertFileSrc(asset.url)
+        url: convertFileSrc(asset.url) + `?t=${now}`
       }));
       
       setAssets(processedData);
@@ -72,8 +73,8 @@ export function useLibrary() {
       const selected = await open({
         multiple: true,
         filters: [{
-          name: 'Images',
-          extensions: ['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp']
+          name: 'Media & Documents',
+          extensions: ['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'pdf', 'txt', 'md']
         }]
       });
 

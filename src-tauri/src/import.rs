@@ -215,3 +215,75 @@ pub fn toggle_favorite(id: String, state: State<'_, AppState>) -> Result<bool, S
     
     Err("Asset not found".to_string())
 }
+
+#[tauri::command]
+pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetData, String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    let vault_lock = state.vault_path.lock().unwrap();
+    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+
+    let response = reqwest::blocking::get(&url).map_err(|e| format!("Failed to download: {}", e))?;
+    let bytes = response.bytes().map_err(|e| format!("Failed to read bytes: {}", e))?;
+
+    let id = Uuid::new_v4().to_string();
+    
+    let ext_guess = url.split('.').last().unwrap_or("jpg").to_lowercase();
+    let valid_exts = ["jpg", "jpeg", "png", "gif", "webp"];
+    let ext = if valid_exts.contains(&ext_guess.as_str()) { ext_guess } else { "jpg".to_string() };
+    
+    let filename = format!("web_import_{}.{}", id.chars().take(8).collect::<String>(), ext);
+    let new_filename = format!("{}.{}", id, ext);
+    let dest_rel_path = PathBuf::from("media").join(&new_filename);
+    let dest_abs_path = vault_path.join(&dest_rel_path);
+    
+    fs::write(&dest_abs_path, bytes).map_err(|e| e.to_string())?;
+    
+    let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
+    let metadata = fs::metadata(&dest_abs_path).map_err(|e| e.to_string())?;
+    let size_bytes = metadata.len();
+    let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
+    
+    let now = Utc::now().to_rfc3339();
+    let local_url = dest_abs_path.to_string_lossy().into_owned();
+    
+    let type_ = format!("image/{}", ext);
+    
+    let asset = AssetData {
+        id: id.clone(),
+        title: "Imported from Web".to_string(),
+        filename: filename.clone(),
+        filepath: dest_rel_path.to_string_lossy().into_owned(),
+        type_,
+        size: size_str,
+        width,
+        height,
+        favorite: false,
+        date_added: now,
+        url: local_url.clone(),
+        tags: vec![],
+        collections: vec![],
+    };
+    
+    conn.execute(
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        (
+            &asset.id,
+            &asset.title,
+            &asset.filename,
+            &asset.filepath,
+            &asset.type_,
+            &asset.size,
+            &asset.width,
+            &asset.height,
+            &asset.favorite,
+            &asset.date_added,
+            &asset.url,
+        ),
+    ).map_err(|e| e.to_string())?;
+    
+    Ok(asset)
+}
+

@@ -577,10 +577,55 @@ html, body {
   padding: var(--space-3);
 }
 
-.gallery__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--space-3);
+.gallery__layout--grid {
+  column-count: auto;
+  column-width: 180px;
+  column-gap: var(--space-3);
+}
+
+.gallery__layout--grid .gallery__card {
+  break-inside: avoid;
+  margin-bottom: var(--space-3);
+}
+
+.gallery__layout--list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.gallery__layout--list .gallery__card {
+  display: flex;
+  flex-direction: row;
+  height: 60px;
+  align-items: center;
+}
+
+.gallery__layout--list .gallery__card-image {
+  width: 60px;
+  height: 60px;
+  flex-shrink: 0;
+}
+
+.gallery__layout--list .gallery__card-overlay {
+  position: relative;
+  background: none;
+  opacity: 1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  flex: 1;
+}
+
+.gallery__layout--list .gallery-item__image-wrapper {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.gallery__layout--list .gallery__card-meta {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .gallery__card {

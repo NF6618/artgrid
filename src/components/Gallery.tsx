@@ -11,6 +11,7 @@ export interface Asset {
   size: string;
   type: string;
   tags: string[];
+  collections: string[];
   favorite: boolean;
   dateAdded: string;
   palette?: string[]; // Make palette optional since imported images won't have it initially
@@ -32,6 +33,7 @@ interface GalleryProps {
   onPreviewAsset?: (asset: Asset) => void;
   onToggleFavorite: (id: string) => void;
   onImport?: () => void;
+  viewMode?: 'grid' | 'list' | 'board';
 }
 
 export const Gallery: React.FC<GalleryProps> = ({
@@ -40,7 +42,8 @@ export const Gallery: React.FC<GalleryProps> = ({
   onSelectAsset,
   onPreviewAsset,
   onToggleFavorite,
-  onImport
+  onImport,
+  viewMode = 'grid'
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -120,8 +123,8 @@ export const Gallery: React.FC<GalleryProps> = ({
         </div>
       </div>
 
-      {/* Masonry-style grid */}
-      <div className="gallery__grid">
+      {/* Masonry-style grid or list */}
+      <div className={`gallery__layout--${viewMode}`}>
         {assets.map((asset) => {
           const isSelected = selectedAsset?.id === asset.id;
           // Generate a visually rich placeholder using the asset's palette

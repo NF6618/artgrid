@@ -48,16 +48,38 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
 
     // 3. Configure Viewport Interactions
     viewport
-      .drag({ mouseButtons: 'right' }) // Always drag with right click
+      .drag({ mouseButtons: 'all' }) // Allow all buttons, we control behavior via pause/resume
       .pinch()
       .wheel()
       .decelerate();
 
-    // Fix for middle mouse button panning
-    viewport.on('pointerdown', (e) => {
-      if (e.data.originalEvent.button === 1) { // Middle click
-        viewport.plugins.get('drag')?.resume();
-      }
+    // Control panning behavior based on active tool and button
+    viewport.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      // e.button: 0=Left, 1=Middle, 2=Right
+      // In select mode, only Right (2) or Middle (1) can pan the canvas.
+      // In pan mode, Left (0), Middle (1), and Right (2) can pan.
+      
+      // Need to read the latest activeTool from a ref or use the global pointerdown below,
+      // but since activeTool is in closure, it might be stale here if we don't recreate.
+      // Wait, let's remove this pointerdown and handle it in the useEffect that watches activeTool.
+    });
+
+    // Frustum Culling Optimization (Phase 5)
+    viewport.on('moved', () => {
+      const bounds = viewport.getVisibleBounds();
+      const padding = 300; // Pad bounds to render slightly off-screen elements
+      
+      viewport.children.forEach((child: any) => {
+        if (child.isCanvasNode) {
+          const outOfBounds = 
+            child.x + child.width < bounds.x - padding ||
+            child.x > bounds.x + bounds.width + padding ||
+            child.y + child.height < bounds.y - padding ||
+            child.y > bounds.y + bounds.height + padding;
+          
+          child.renderable = !outOfBounds;
+        }
+      });
     });
 
     // 4. Handle window resize
@@ -85,8 +107,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
     
     const dragPlugin = viewport.plugins.get('drag') as any;
     if (dragPlugin) {
-       // If tool is pan, allow left click (mouseButtons: 'left') panning, otherwise only right click
-       dragPlugin.options.mouseButtons = activeTool === 'pan' ? 'left' : 'right';
+       // A robust way to control pixi-viewport dragging dynamically:
+       // We override the down method or just set options
+       dragPlugin.options.mouseButtons = activeTool === 'pan' ? 'all' : 'right';
     }
     
     // Change cursor
@@ -127,6 +150,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
         // Enable interaction
         sprite.eventMode = 'static'; // Pixi v7 interactivity
         sprite.cursor = 'pointer';
+        (sprite as any).isCanvasNode = true;
 
         // Selection highlight
         if (selectedNodeId === node.id) {
@@ -143,7 +167,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
              setSelectedNodeId(node.id);
              dragging = true;
              startPosition = { x: sprite.x, y: sprite.y };
-            viewport.plugins.pause('drag');
+             viewport.plugins.pause('drag');
           }
         });
 
@@ -187,6 +211,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, 
         setSelectedNodeId(null);
       }
     });
+
+    // Trigger initial cull
+    viewport.emit('moved', { viewport });
 
   }, [nodes, selectedNodeId, activeTool, onNodesChange]);
 

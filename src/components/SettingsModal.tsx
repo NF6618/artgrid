@@ -8,7 +8,7 @@ interface SettingsModalProps {
   onChangeVault: () => void;
 }
 
-type SettingsTab = 'general' | 'vaults' | 'appearance' | 'keybinds';
+type SettingsTab = 'general' | 'vaults' | 'appearance' | 'keybinds' | 'data';
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   visible,
@@ -107,6 +107,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               { id: 'vaults', label: 'Vaults' },
               { id: 'appearance', label: 'Appearance' },
               { id: 'keybinds', label: 'Keybinds' },
+              { id: 'data', label: 'Data Management' },
             ].map(tab => (
               <div 
                 key={tab.id}
@@ -241,6 +242,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div>
                   <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Custom Colors
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input type="color" defaultValue="#0a0a0f" onChange={(e) => document.documentElement.style.setProperty('--bg-base', e.target.value)} />
+                      <span>Background Base</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input type="color" defaultValue="#7c6bf0" onChange={(e) => document.documentElement.style.setProperty('--accent-primary', e.target.value)} />
+                      <span>Accent Color</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Layout
                   </h3>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
@@ -255,6 +272,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Reduce spacing in the sidebar and gallery for smaller screens</div>
                     </div>
                   </label>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'data' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Database Operations
+                  </h3>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <button className="btn btn--secondary" onClick={() => alert('Exporting Database...')}>
+                      Export DB Backup
+                    </button>
+                    <button className="btn btn--secondary" onClick={() => alert('Importing Database...')}>
+                      Import DB Backup
+                    </button>
+                    <button className="btn btn--secondary" style={{ color: 'var(--color-error)' }} onClick={() => alert('Clearing Cache...')}>
+                      Clear Cache
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

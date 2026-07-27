@@ -15,6 +15,8 @@ interface SidebarProps {
   onViewChange: (view: ViewType) => void;
   activeCollection: string | null;
   onCollectionChange: (id: string | null) => void;
+  activeTag?: string | null;
+  onTagChange?: (id: string | null) => void;
   onImport?: () => void;
   onSettings?: () => void;
   stats: {
@@ -80,11 +82,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onViewChange,
   activeCollection,
   onCollectionChange,
+  activeTag,
+  onTagChange,
   onImport,
   onSettings,
   stats
 }) => {
-  const { collections, loadMetadata } = useMetadataStore();
+  const { collections, tags, loadMetadata } = useMetadataStore();
 
   useEffect(() => {
     loadMetadata();
@@ -160,8 +164,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               collection={collection}
               depth={0}
               active={activeCollection}
-              onSelect={onCollectionChange}
+              onSelect={(id) => onCollectionChange(activeCollection === id ? null : id)}
             />
+          ))}
+        </div>
+
+        {/* Tags */}
+        <div className="sidebar__section-title" style={{ marginTop: 'var(--space-4)' }}>
+          Tags
+        </div>
+        <div className="collection-tree" style={{ paddingLeft: 'var(--space-2)' }}>
+          {tags.map(tag => (
+            <div 
+              key={tag.id}
+              className={`sidebar__item ${activeTag === tag.name ? 'sidebar__item--active' : ''}`}
+              onClick={() => {
+                if (onTagChange) {
+                  onTagChange(activeTag === tag.name ? null : tag.name);
+                }
+              }}
+              style={{ paddingLeft: 'var(--space-2)', height: 28 }}
+            >
+              <IconTag size={12} className="sidebar__item-icon" />
+              <span className="sidebar__item-label" style={{ fontSize: '0.8rem', opacity: 0.8 }}>{tag.name}</span>
+            </div>
           ))}
         </div>
       </nav>

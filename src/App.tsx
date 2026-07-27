@@ -6,6 +6,8 @@ import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { BoardCanvas } from './components/BoardCanvas';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useEffect } from 'react';
 
 import { useLibrary } from './hooks/useLibrary';
 import { useBoardStore } from './stores/useBoardStore';
@@ -21,6 +23,7 @@ const App: React.FC = () => {
   // Navigation state
   const [activeView, setActiveView] = useState<ViewType>('library');
   const [activeCollection, setActiveCollection] = useState<string | null>(null);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
   // View state
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -34,7 +37,7 @@ const App: React.FC = () => {
   }, [loadSettings]);
 
   // Library state via Tauri
-  const { assets, vaultPath, openVault, loadVault, importFiles, setAssets } = useLibrary();
+  const { assets, vaultPath, openVault, loadVault, importFiles, setAssets, loadAssets } = useLibrary();
 
   // Auto load saved vault on startup
   React.useEffect(() => {
@@ -66,6 +69,33 @@ const App: React.FC = () => {
       loadBoards();
     }
   }, [vaultPath, loadBoards]);
+
+  // Deep link listener
+  useEffect(() => {
+    const unlisten = listen('deep-link-received', async (event: any) => {
+      const argv = event.payload as string[];
+      const deepLink = argv.find(arg => arg.startsWith('artgrid://'));
+      if (deepLink) {
+        try {
+          const urlObj = new URL(deepLink);
+          if (urlObj.hostname === 'save') {
+             const imageUrl = urlObj.searchParams.get('url');
+             if (imageUrl) {
+                console.log("Deep link received, importing from url:", imageUrl);
+                await invoke('import_from_url', { url: imageUrl });
+                loadAssets();
+             }
+          }
+        } catch(e) {
+          console.error("Failed to parse deep link", e);
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then(f => f());
+    };
+  }, [loadAssets]);
 
   // Canvas Tools
   const [activeTool, setActiveTool] = useState<ToolType>('select');
@@ -108,6 +138,14 @@ const App: React.FC = () => {
 
   // Filter assets by search and active view
   let filteredAssets = assets;
+  
+  if (activeCollection) {
+    filteredAssets = filteredAssets.filter(a => a.collections && a.collections.includes(activeCollection));
+  }
+  
+  if (activeTag) {
+    filteredAssets = filteredAssets.filter(a => a.tags && a.tags.includes(activeTag));
+  }
   
   if (activeView === 'favorites') {
     filteredAssets = filteredAssets.filter(a => a.favorite);
@@ -154,6 +192,8 @@ const App: React.FC = () => {
           onViewChange={setActiveView}
           activeCollection={activeCollection}
           onCollectionChange={setActiveCollection}
+          activeTag={activeTag}
+          onTagChange={setActiveTag}
           onImport={importFiles}
           onSettings={() => setShowSettings(true)}
           stats={{
@@ -176,6 +216,7 @@ const App: React.FC = () => {
             onToggleDetailPanel={handleToggleDetailPanel}
             title={getViewTitle()}
             itemCount={filteredAssets.length}
+            onRefresh={loadAssets}
           />
 
           {/* Main content + detail panel */}
@@ -203,6 +244,7 @@ const App: React.FC = () => {
                 onPreviewAsset={setPreviewAsset}
                 onToggleFavorite={handleToggleFavorite}
                 onImport={importFiles}
+                viewMode={viewMode}
               />
             ) : activeView === 'boards' ? (
               boards.length === 0 ? (
@@ -338,12 +380,7 @@ const App: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Minimap */}
-                <div className="canvas-minimap">
-                  <div className="canvas-minimap__viewport" style={{
-                    top: '20%', left: '25%', width: '40%', height: '50%',
-                  }} />
-                </div>
+                {/* Fake Minimap Removed */}
                   </div>
                 </div>
               )
