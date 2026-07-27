@@ -4,8 +4,7 @@ import { Toolbar } from './components/Toolbar';
 import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
-import { BoardCanvas } from './components/BoardCanvas';
-import { v4 as uuidv4 } from 'uuid';
+import { BoardCanvas, BoardCanvasHandle } from './components/BoardCanvas';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
@@ -19,7 +18,7 @@ import { FileViewerModal } from './components/FileViewerModal';
 
 type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 type ViewMode = 'grid' | 'list' | 'board';
-export type ToolType = 'select' | 'pan' | 'text' | 'shape' | 'draw' | 'link';
+export type ToolType = 'select' | 'pan' | 'text' | 'shape' | 'draw' | 'link' | 'sticky' | 'section';
 
 const App: React.FC = () => {
   // Navigation state
@@ -106,6 +105,11 @@ const App: React.FC = () => {
 
   // Canvas Tools
   const [activeTool, setActiveTool] = useState<ToolType>('select');
+  const boardCanvasRef = React.useRef<BoardCanvasHandle>(null);
+
+  // Inline board rename state
+  const [renamingBoardId, setRenamingBoardId] = useState<string | null>(null);
+  const [renamingTitle, setRenamingTitle] = useState('');
 
   // Handlers
   const handleSelectAsset = useCallback((asset: Asset) => {
@@ -291,8 +295,8 @@ const App: React.FC = () => {
               boards.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
                   <div className="empty-state">
-                    <h2 className="empty-state__title">Mood Boards</h2>
-                    <p className="empty-state__description">Create a new infinite canvas.</p>
+                    <h2 className="empty-state__title">Project Boards</h2>
+                    <p className="empty-state__description">Create an infinite canvas for references, mood boards, storyboards, and world-building.</p>
                     <div className="empty-state__action">
                       <button className="btn btn--primary" onClick={() => createBoard('New Board')}>
                         Create Board
@@ -302,28 +306,29 @@ const App: React.FC = () => {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
-                  {/* Left Side: Rich Media Drawer for Board */}
-                  <div style={{ 
-                    width: isMediaDrawerCollapsed ? 48 : 280, 
-                    transition: 'width 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                    borderRight: '1px solid var(--border-subtle)', 
-                    display: 'flex', 
-                    flexDirection: 'column',
+
+                  {/* ── Left: Media Drawer ─────────────────────────────── */}
+                  <div style={{
+                    width: isMediaDrawerCollapsed ? 48 : 300,
+                    transition: 'width 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+                    borderRight: '1px solid var(--border-subtle)',
+                    display: 'flex', flexDirection: 'column',
                     background: 'var(--bg-secondary)',
-                    position: 'relative',
-                    zIndex: 20,
-                    fontFamily: 'var(--font-family)'
+                    position: 'relative', zIndex: 20,
+                    fontFamily: 'var(--font-family)',
+                    overflow: 'hidden',
                   }}>
-                    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {/* Header */}
+                    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
                       {!isMediaDrawerCollapsed && (
-                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                           Media Library
                         </span>
                       )}
-                      <button 
-                        className="toolbar__btn" 
-                        onClick={() => setIsMediaDrawerCollapsed(!isMediaDrawerCollapsed)}
-                        title={isMediaDrawerCollapsed ? "Expand Media Sidebar" : "Collapse Media Sidebar"}
+                      <button
+                        className="toolbar__btn"
+                        onClick={() => setIsMediaDrawerCollapsed(v => !v)}
+                        title={isMediaDrawerCollapsed ? 'Expand Media Sidebar' : 'Collapse Media Sidebar'}
                         style={{ padding: '4px 8px', margin: isMediaDrawerCollapsed ? '0 auto' : '0' }}
                       >
                         {isMediaDrawerCollapsed ? '▶' : '◀'}
@@ -332,255 +337,287 @@ const App: React.FC = () => {
 
                     {!isMediaDrawerCollapsed && (
                       <>
-                        {/* Filtering Controls */}
-                        <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
-                          <input 
-                            placeholder="Search library..."
+                        {/* Filter / Sort */}
+                        <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-base)', flexShrink: 0 }}>
+                          <input
+                            placeholder="🔍  Search assets…"
                             value={boardSearchQuery}
                             onChange={e => setBoardSearchQuery(e.target.value)}
-                            style={{ 
-                              background: 'var(--bg-secondary)', 
-                              border: '1px solid var(--border-subtle)', 
-                              color: 'var(--text-primary)', 
-                              borderRadius: 'var(--radius-sm)', 
-                              padding: '6px 10px', 
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-subtle)',
+                              color: 'var(--text-primary)',
+                              borderRadius: 'var(--radius-sm)',
+                              padding: '7px 10px',
                               fontSize: 'var(--font-size-xs)',
                               outline: 'none',
-                              fontFamily: 'var(--font-family)'
+                              fontFamily: 'var(--font-family)',
+                              width: '100%',
+                              boxSizing: 'border-box',
                             }}
                           />
                           <div style={{ display: 'flex', gap: 6 }}>
-                            <select 
+                            <select
                               value={boardCategoryFilter}
                               onChange={e => setBoardCategoryFilter(e.target.value)}
-                              style={{ 
-                                flex: 1, 
-                                background: 'var(--bg-secondary)', 
-                                border: '1px solid var(--border-subtle)', 
-                                color: 'var(--text-primary)', 
-                                borderRadius: 'var(--radius-sm)', 
-                                padding: '4px 6px', 
-                                fontSize: 'var(--font-size-xs)',
-                                outline: 'none',
-                                fontFamily: 'var(--font-family)'
-                              }}
+                              style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', borderRadius: 'var(--radius-sm)', padding: '5px 6px', fontSize: 'var(--font-size-xs)', outline: 'none', fontFamily: 'var(--font-family)', cursor: 'pointer' }}
                             >
-                              <option value="all">All Categories</option>
+                              <option value="all">All Collections</option>
                               {collections.map((c: any) => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                               ))}
                             </select>
-                            <select 
+                            <select
                               value={boardSortBy}
                               onChange={e => setBoardSortBy(e.target.value)}
-                              style={{ 
-                                flex: 1, 
-                                background: 'var(--bg-secondary)', 
-                                border: '1px solid var(--border-subtle)', 
-                                color: 'var(--text-primary)', 
-                                borderRadius: 'var(--radius-sm)', 
-                                padding: '4px 6px', 
-                                fontSize: 'var(--font-size-xs)',
-                                outline: 'none',
-                                fontFamily: 'var(--font-family)'
-                              }}
+                              style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', borderRadius: 'var(--radius-sm)', padding: '5px 6px', fontSize: 'var(--font-size-xs)', outline: 'none', fontFamily: 'var(--font-family)', cursor: 'pointer' }}
                             >
-                              <option value="date">Date</option>
-                              <option value="title">Title</option>
-                              <option value="size">Size</option>
+                              <option value="date">Date Modified</option>
+                              <option value="title">Name A–Z</option>
+                              <option value="size">File Size</option>
                             </select>
                           </div>
                         </div>
 
-                        {/* Asset Grid */}
+                        {/* Count */}
+                        <div style={{ padding: '6px 14px', fontSize: '0.7rem', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+                          {boardFilteredAssets.length} asset{boardFilteredAssets.length !== 1 ? 's' : ''}
+                        </div>
+
+                        {/* Asset grid */}
                         <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignContent: 'start' }}>
                           {boardFilteredAssets.map(asset => (
-                            <div 
-                              key={asset.id} 
-                              draggable 
-                              onDragStart={(e) => {
-                                const dataObj = { 
-                                  id: asset.id, 
-                                  url: asset.url, 
-                                  title: asset.title,
-                                  width: asset.width,
-                                  height: asset.height
-                                };
+                            <div
+                              key={asset.id}
+                              draggable
+                              onDragStart={e => {
+                                const dataObj = { id: asset.id, url: asset.url, title: asset.title, width: asset.width, height: asset.height };
+                                // Store globally for reliable Tauri webview access
+                                (window as any).__artgridDragAsset = dataObj;
                                 e.dataTransfer.setData('application/json', JSON.stringify(dataObj));
                                 e.dataTransfer.setData('text/plain', asset.url);
+                                e.dataTransfer.effectAllowed = 'copy';
                               }}
-                              style={{ 
-                                aspectRatio: '1', 
-                                background: 'var(--bg-base)', 
-                                borderRadius: 'var(--radius-md)', 
+                              onDragEnd={() => { (window as any).__artgridDragAsset = null; }}
+                              style={{
+                                aspectRatio: '1',
+                                background: 'var(--bg-base)',
+                                borderRadius: 'var(--radius-md)',
                                 border: '1px solid var(--border-subtle)',
-                                overflow: 'hidden', 
-                                cursor: 'grab', 
+                                overflow: 'hidden', cursor: 'grab',
                                 position: 'relative',
-                                transition: 'all 0.15s ease'
+                                transition: 'transform 0.12s ease, box-shadow 0.12s ease',
                               }}
-                              title={`${asset.title} - Drag onto board`}
+                              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = ''; }}
+                              title={`${asset.title} — drag onto board`}
                             >
-                              <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />
-                              <div style={{ 
-                                position: 'absolute', 
-                                bottom: 0, 
-                                inset: 'auto 0 0 0', 
-                                background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)', 
-                                padding: '6px 4px 3px 4px', 
-                                fontSize: '10px', 
-                                fontWeight: 500,
-                                whiteSpace: 'nowrap', 
-                                overflow: 'hidden', 
-                                textOverflow: 'ellipsis', 
-                                color: 'white',
-                                fontFamily: 'var(--font-family)'
+                              <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} draggable={false} />
+                              <div style={{
+                                position: 'absolute', inset: 'auto 0 0 0',
+                                background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 100%)',
+                                padding: '14px 5px 4px',
+                                fontSize: '10px', fontWeight: 500,
+                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                color: 'white', fontFamily: 'var(--font-family)',
                               }}>
                                 {asset.title}
                               </div>
                             </div>
                           ))}
+                          {boardFilteredAssets.length === 0 && (
+                            <div style={{ gridColumn: '1 / -1', padding: '24px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                              No assets match your filters.
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
                   </div>
-                  
-                  {/* Right Side: Canvas */}
-                  <div className="canvas-container" style={{ flex: 1, position: 'relative' }}>
-                    <div className="canvas-container__grid" />
-                    
-                    {/* Board Tabs */}
-                    <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10, display: 'flex', gap: '8px' }}>
+
+                  {/* ── Right: Canvas area ─────────────────────────────── */}
+                  <div className="canvas-container" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+
+                    {/* ── Board tab strip ── */}
+                    <div style={{
+                      position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30,
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      padding: '8px 12px',
+                      background: 'rgba(18,18,22,0.85)', backdropFilter: 'blur(12px)',
+                      borderBottom: '1px solid var(--border-subtle)',
+                      flexWrap: 'nowrap', overflowX: 'auto',
+                    }}>
                       {boards.map(b => (
-                        <div key={b.id} style={{ display: 'flex' }}>
-                          <button 
-                            className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--secondary'}`}
-                            onClick={() => setActiveBoard(b.id)}
-                            style={{ padding: '4px 12px', fontSize: '12px', borderRadius: '4px 0 0 4px' }}
-                            onDoubleClick={() => {
-                              const newTitle = prompt('Rename board:', b.title);
-                              if (newTitle) renameBoard(b.id, newTitle);
+                        <div key={b.id} style={{ display: 'flex', flexShrink: 0 }}>
+                          {renamingBoardId === b.id ? (
+                            <input
+                              autoFocus
+                              value={renamingTitle}
+                              onChange={e => setRenamingTitle(e.target.value)}
+                              onBlur={() => { renameBoard(b.id, renamingTitle || b.title); setRenamingBoardId(null); }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { renameBoard(b.id, renamingTitle || b.title); setRenamingBoardId(null); }
+                                if (e.key === 'Escape') setRenamingBoardId(null);
+                              }}
+                              style={{
+                                background: 'var(--bg-surface)', border: '1px solid var(--accent)',
+                                color: 'var(--text-primary)', borderRadius: '6px 0 0 6px',
+                                padding: '4px 10px', fontSize: '12px', outline: 'none',
+                                fontFamily: 'var(--font-family)', minWidth: 80,
+                              }}
+                            />
+                          ) : (
+                            <button
+                              className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--ghost'}`}
+                              onClick={() => setActiveBoard(b.id)}
+                              onDoubleClick={() => { setRenamingBoardId(b.id); setRenamingTitle(b.title); }}
+                              title="Double-click to rename"
+                              style={{ padding: '4px 12px', fontSize: '12px', borderRadius: '6px 0 0 6px', fontWeight: b.id === activeBoardId ? 600 : 400 }}
+                            >
+                              {b.title}
+                            </button>
+                          )}
+                          <button
+                            className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--ghost'}`}
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (window.confirm(`Delete board "${b.title}"?`)) deleteBoard(b.id);
                             }}
-                            title="Double-click to rename"
-                          >
-                            {b.title}
-                          </button>
-                          <button 
-                            className={`btn ${b.id === activeBoardId ? 'btn--primary' : 'btn--secondary'}`}
-                            onClick={(e) => {
-                               e.stopPropagation();
-                               if (window.confirm(`Delete board "${b.title}"?`)) {
-                                 deleteBoard(b.id);
-                               }
-                            }}
-                            style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '0 4px 4px 0', borderLeft: '1px solid rgba(0,0,0,0.1)' }}
-                            title="Delete Board"
-                          >
-                            ×
-                          </button>
+                            style={{ padding: '4px 7px', fontSize: '12px', borderRadius: '0 6px 6px 0', borderLeft: '1px solid rgba(255,255,255,0.1)', opacity: 0.7 }}
+                            title="Delete board"
+                          >×</button>
                         </div>
                       ))}
-                      <button className="btn btn--secondary" onClick={() => createBoard('New Board')} style={{ padding: '4px 8px' }}>+</button>
+                      <button
+                        className="btn btn--ghost"
+                        onClick={() => createBoard('New Board')}
+                        style={{ padding: '4px 10px', fontSize: '18px', lineHeight: 1, flexShrink: 0, opacity: 0.7 }}
+                        title="New board"
+                      >+</button>
+
+                      {/* Section navigation chips (derived from section nodes) */}
+                      {(activeBoard?.nodes.filter(n => n.type === 'section') ?? []).length > 0 && (
+                        <>
+                          <div style={{ width: 1, height: 20, background: 'var(--border-subtle)', margin: '0 4px', flexShrink: 0 }} />
+                          {activeBoard!.nodes
+                            .filter(n => n.type === 'section')
+                            .map(sectionNode => (
+                              <button
+                                key={sectionNode.id}
+                                onClick={() => boardCanvasRef.current?.jumpToNode(sectionNode.id)}
+                                style={{
+                                  padding: '3px 10px', fontSize: '11px', flexShrink: 0,
+                                  border: `1px solid ${sectionNode.data.sectionColor ?? '#7c6bf0'}55`,
+                                  borderRadius: 20,
+                                  background: `${sectionNode.data.sectionColor ?? '#7c6bf0'}22`,
+                                  color: sectionNode.data.sectionColor ?? '#7c6bf0',
+                                  cursor: 'pointer', fontFamily: 'var(--font-family)',
+                                  fontWeight: 500, transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = `${sectionNode.data.sectionColor ?? '#7c6bf0'}44`)}
+                                onMouseLeave={e => (e.currentTarget.style.background = `${sectionNode.data.sectionColor ?? '#7c6bf0'}22`)}
+                                title={`Jump to: ${sectionNode.data.text}`}
+                              >
+                                📐 {sectionNode.data.text}
+                              </button>
+                            ))
+                          }
+                        </>
+                      )}
                     </div>
 
-                  {/* Canvas Implementation */}
-                  <BoardCanvas 
-                    nodes={activeBoard?.nodes || []}
-                    onNodesChange={(nodes) => {
-                      if (activeBoardId) updateBoardNodes(activeBoardId, nodes);
-                    }}
-                    activeTool={activeTool}
-                    onToolChange={setActiveTool}
-                  />
+                    {/* ── Canvas (offset below tab strip) ── */}
+                    <div style={{ position: 'absolute', top: 45, bottom: 0, left: 0, right: 0 }}>
+                      <BoardCanvas
+                        ref={boardCanvasRef}
+                        nodes={activeBoard?.nodes || []}
+                        onNodesChange={nodes => { if (activeBoardId) updateBoardNodes(activeBoardId, nodes); }}
+                        activeTool={activeTool}
+                        onToolChange={setActiveTool}
+                        onUndo={() => { if (activeBoardId) useBoardStore.getState().undoNodes(activeBoardId); }}
+                        onRedo={() => { if (activeBoardId) useBoardStore.getState().redoNodes(activeBoardId); }}
+                        onDuplicate={nodeId => { if (activeBoardId) useBoardStore.getState().duplicateNode(activeBoardId, nodeId); }}
+                        onMoveToFront={nodeId => { if (activeBoardId) useBoardStore.getState().moveNodeToFront(activeBoardId, nodeId); }}
+                        onMoveToBack={nodeId => { if (activeBoardId) useBoardStore.getState().moveNodeToBack(activeBoardId, nodeId); }}
+                      />
+                    </div>
 
-                  {/* Canvas floating toolbar with Direct Item Creation */}
-                <div className="canvas-toolbar">
-                  <button 
-                    className={`toolbar__btn ${activeTool === 'select' ? 'toolbar__btn--active' : ''}`} 
-                    title="Select & Move (V)"
-                    onClick={() => setActiveTool('select')}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                      <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
-                    </svg>
-                  </button>
-                  <button 
-                    className={`toolbar__btn ${activeTool === 'pan' ? 'toolbar__btn--active' : ''}`} 
-                    title="Hand / Pan Viewport (H)"
-                    onClick={() => setActiveTool('pan')}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                      <path d="M18 11V6a2 2 0 0 0-4 0v5m0 0V4a2 2 0 0 0-4 0v7m0 0V6a2 2 0 0 0-4 0v7m0-2a2 2 0 0 0-4 0v5a8 8 0 0 0 16 0v-2a2 2 0 0 0-4 0" />
-                    </svg>
-                  </button>
-                  <div className="toolbar__separator" />
-                  <button 
-                    className={`toolbar__btn ${activeTool === 'text' ? 'toolbar__btn--active' : ''}`} 
-                    title="Add Text Note (T)"
-                    onClick={() => {
-                      setActiveTool('text');
-                      const textStr = prompt("Enter text note:", "Note idea...");
-                      if (textStr && textStr.trim() && activeBoardId) {
-                        const newNode: any = {
-                          id: uuidv4(),
-                          type: 'text',
-                          position: { x: 300 + Math.random() * 60, y: 300 + Math.random() * 60 },
-                          dimensions: { width: 220, height: 110 },
-                          data: { text: textStr.trim(), fontSize: 14, color: '#3b82f6' }
-                        };
-                        updateBoardNodes(activeBoardId, [...(activeBoard?.nodes || []), newNode]);
-                        setActiveTool('select');
-                      }
-                    }}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                      <polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />
-                    </svg>
-                  </button>
-                  <button 
-                    className={`toolbar__btn ${activeTool === 'shape' ? 'toolbar__btn--active' : ''}`} 
-                    title="Add Shape Frame (S)"
-                    onClick={() => {
-                      setActiveTool('shape');
-                      if (activeBoardId) {
-                        const newNode: any = {
-                          id: uuidv4(),
-                          type: 'shape',
-                          position: { x: 350 + Math.random() * 60, y: 350 + Math.random() * 60 },
-                          dimensions: { width: 240, height: 160 },
-                          data: { shapeType: 'rectangle', color: '#7c6bf0' }
-                        };
-                        updateBoardNodes(activeBoardId, [...(activeBoard?.nodes || []), newNode]);
-                        setActiveTool('select');
-                      }
-                    }}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                    </svg>
-                  </button>
-                  <button 
-                    className={`toolbar__btn ${activeTool === 'draw' ? 'toolbar__btn--active' : ''}`} 
-                    title="Freehand Draw (D)"
-                    onClick={() => setActiveTool('draw')}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                      <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><path d="M2 2l7.586 7.586" /><circle cx="11" cy="11" r="2" />
-                    </svg>
-                  </button>
-                  <button 
-                    className={`toolbar__btn ${activeTool === 'link' ? 'toolbar__btn--active' : ''}`} 
-                    title="Connect Arrow Link (L)"
-                    onClick={() => setActiveTool('link')}
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
-                  </button>
-                </div>
+                    {/* ── Floating Toolbar ── */}
+                    <div className="canvas-toolbar">
+                      {([
+                        { tool: 'select' as ToolType, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /></svg>, title: 'Select · V' },
+                        { tool: 'pan' as ToolType, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}><path d="M18 11V6a2 2 0 0 0-4 0v5m0 0V4a2 2 0 0 0-4 0v7m0 0V6a2 2 0 0 0-4 0v7m0-2a2 2 0 0 0-4 0v5a8 8 0 0 0 16 0v-2a2 2 0 0 0-4 0" /></svg>, title: 'Pan · H' },
+                      ] as const).map(({ tool, icon, title }) => (
+                        <button key={tool} className={`toolbar__btn ${activeTool === tool ? 'toolbar__btn--active' : ''}`} title={title} onClick={() => setActiveTool(tool)}>{icon}</button>
+                      ))}
 
-                {/* Fake Minimap Removed */}
+                      <div className="toolbar__separator" />
+
+                      {/* Text */}
+                      <button className={`toolbar__btn ${activeTool === 'text' ? 'toolbar__btn--active' : ''}`} title="Text Note — click canvas to place · T"
+                        onClick={() => setActiveTool('text')}>
+                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />
+                        </svg>
+                      </button>
+
+                      {/* Shape */}
+                      <button className={`toolbar__btn ${activeTool === 'shape' ? 'toolbar__btn--active' : ''}`} title="Shape Frame — click canvas · S"
+                        onClick={() => setActiveTool('shape')}>
+                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                        </svg>
+                      </button>
+
+                      {/* Sticky */}
+                      <button className={`toolbar__btn ${activeTool === 'sticky' ? 'toolbar__btn--active' : ''}`} title="Sticky Note — click canvas to place"
+                        onClick={() => setActiveTool('sticky')}>
+                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" /><polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </button>
+
+                      {/* Section */}
+                      <button className={`toolbar__btn ${activeTool === 'section' ? 'toolbar__btn--active' : ''}`} title="Section / Named Region — click canvas to place"
+                        onClick={() => setActiveTool('section')}>
+                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+                        </svg>
+                      </button>
+
+                      {/* Draw */}
+                      <button className={`toolbar__btn ${activeTool === 'draw' ? 'toolbar__btn--active' : ''}`} title="Freehand Draw · D"
+                        onClick={() => setActiveTool('draw')}>
+                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><circle cx="11" cy="11" r="2" />
+                        </svg>
+                      </button>
+
+                      {/* Link */}
+                      <button className={`toolbar__btn ${activeTool === 'link' ? 'toolbar__btn--active' : ''}`} title="Connect Arrow · L"
+                        onClick={() => setActiveTool('link')}>
+                        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+                        </svg>
+                      </button>
+
+                      <div className="toolbar__separator" />
+
+                      {/* Undo / Redo */}
+                      <button className="toolbar__btn" title="Undo · ⌘Z"
+                        onClick={() => { if (activeBoardId) useBoardStore.getState().undoNodes(activeBoardId); }}>
+                        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <polyline points="9 14 4 9 9 4" /><path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                        </svg>
+                      </button>
+                      <button className="toolbar__btn" title="Redo · ⌘⇧Z"
+                        onClick={() => { if (activeBoardId) useBoardStore.getState().redoNodes(activeBoardId); }}>
+                        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+                          <polyline points="15 14 20 9 15 4" /><path d="M4 20v-7a4 4 0 0 1 4-4h12" />
+                        </svg>
+                      </button>
+                    </div>
+
                   </div>
                 </div>
               )

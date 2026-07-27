@@ -1,921 +1,1234 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+/**
+ * BoardCanvas.tsx
+ * 
+ * GPU-accelerated infinite canvas built on PixiJS + pixi-viewport.
+ * 
+ * Architecture principles:
+ *  - Containers are created ONCE and updated in-place (no destroy/recreate on render).
+ *  - All PIXI event handlers read from refs, never from captured closure values.
+ *  - Drag and resize update PIXI directly during motion; React state commits on release.
+ *  - Sections always render behind all other node types (zIndex 0).
+ *  - Asset drag-drop uses both dataTransfer AND a window global as fallback (Tauri compat).
+ */
+
+import React, {
+  useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef,
+} from 'react';
 import * as PIXI from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 import { v4 as uuidv4 } from 'uuid';
-import { BoardNode, Position } from '../types/board';
+import { BoardNode, Position, NodeType, NODE_DEFAULT_Z } from '../types/board';
 import { ToolType } from '../App';
+
+// ─── Public handle exposed via forwardRef ────────────────────────────────────
+
+export interface BoardCanvasHandle {
+  jumpToNode: (nodeId: string) => void;
+  resetView: () => void;
+}
+
+// ─── Props ───────────────────────────────────────────────────────────────────
 
 interface BoardCanvasProps {
   nodes: BoardNode[];
   onNodesChange: (nodes: BoardNode[]) => void;
   activeTool: ToolType;
   onToolChange?: (tool: ToolType) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onDuplicate?: (nodeId: string) => void;
+  onMoveToFront?: (nodeId: string) => void;
+  onMoveToBack?: (nodeId: string) => void;
 }
 
-export const BoardCanvas: React.FC<BoardCanvasProps> = ({ nodes, onNodesChange, activeTool, onToolChange }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const appRef = useRef<PIXI.Application | null>(null);
-  const viewportRef = useRef<Viewport | null>(null);
+// ─── Context menu state ───────────────────────────────────────────────────────
 
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [linkStartNodeId, setLinkStartNodeId] = useState<string | null>(null);
+interface CtxMenu {
+  x: number; y: number;       // screen coords for the DOM menu
+  worldX: number; worldY: number; // world coords for node placement
+  nodeId?: string;            // if right-clicked on a node
+}
 
-  // Right-click context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; worldX: number; worldY: number } | null>(null);
+// ─── Sticky colour palette ────────────────────────────────────────────────────
 
-  // Active freehand drawing stroke
-  const isDrawingRef = useRef(false);
-  const currentStrokeRef = useRef<Position[]>([]);
-  const currentDrawGraphicsRef = useRef<PIXI.Graphics | null>(null);
+const STICKY_COLORS = ['#f9de70', '#f9a8d4', '#6ee7b7', '#93c5fd', '#c4b5fd', '#fdba74'];
 
-  // Store persistent display containers by node ID
-  const nodeMapRef = useRef<Map<string, PIXI.Container>>(new Map());
-  const nodesRef = useRef<BoardNode[]>(nodes);
-  nodesRef.current = nodes;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  const onNodesChangeRef = useRef(onNodesChange);
-  onNodesChangeRef.current = onNodesChange;
+function hexToNum(hex: string): number {
+  return parseInt((hex || '#7c6bf0').replace('#', ''), 16);
+}
 
-  const onToolChangeRef = useRef(onToolChange);
-  onToolChangeRef.current = onToolChange;
+function drawSelectionRing(g: PIXI.Graphics, w: number, h: number) {
+  g.clear();
+  g.lineStyle(2, 0x3b82f6, 1);
+  g.drawRoundedRect(-4, -4, w + 8, h + 8, 6);
+}
 
-  const selectedNodeIdRef = useRef(selectedNodeId);
-  selectedNodeIdRef.current = selectedNodeId;
+function drawResizeHandle(g: PIXI.Graphics) {
+  g.clear();
+  g.lineStyle(2, 0xffffff, 1);
+  g.beginFill(0x3b82f6, 1);
+  g.drawCircle(0, 0, 7);
+  g.endFill();
+}
 
-  const activeToolRef = useRef(activeTool);
-  activeToolRef.current = activeTool;
+/** Redraw type-specific visuals given current node dimensions */
+function redrawVisuals(
+  container: PIXI.Container,
+  node: BoardNode,
+  overrideW?: number,
+  overrideH?: number,
+) {
+  const w = overrideW ?? node.dimensions.width;
+  const h = overrideH ?? node.dimensions.height;
 
-  const selectedNode = nodes.find(n => n.id === selectedNodeId);
-
-  // 1. Initialize Pixi Application and Viewport on mount
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const app = new PIXI.Application({
-      resizeTo: containerRef.current,
-      backgroundColor: 0x121216,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-      antialias: true,
-    });
-
-    containerRef.current.appendChild(app.view as HTMLCanvasElement);
-    appRef.current = app;
-
-    const viewport = new Viewport({
-      screenWidth: containerRef.current.clientWidth,
-      screenHeight: containerRef.current.clientHeight,
-      worldWidth: 30000,
-      worldHeight: 30000,
-      events: app.renderer.events as any,
-    } as any);
-
-    app.stage.addChild(viewport as any);
-    viewportRef.current = viewport;
-
-    viewport
-      .drag({ mouseButtons: 'all' })
-      .pinch()
-      .wheel()
-      .decelerate();
-
-    // Draw visible high-contrast dot grid inside viewport
-    const gridG = new PIXI.Graphics();
-    gridG.name = 'canvasGridDotPattern';
-    (gridG as any).eventMode = 'none';
-    (gridG as any).interactive = false;
-    const DOT_SPACING = 50;
-    const GRID_SIZE = 15000;
-    gridG.beginFill(0x555566, 0.7);
-    for (let x = -GRID_SIZE; x <= GRID_SIZE; x += DOT_SPACING) {
-      for (let y = -GRID_SIZE; y <= GRID_SIZE; y += DOT_SPACING) {
-        gridG.drawCircle(x, y, 2.5);
+  switch (node.type) {
+    case 'text': {
+      const bg = container.getChildByName('bg') as PIXI.Graphics | null;
+      const txt = container.getChildByName('content') as PIXI.Text | null;
+      if (bg) {
+        bg.clear();
+        bg.beginFill(0x25252a, 0.95);
+        bg.lineStyle(1.5, 0x3b82f6, 0.8);
+        bg.drawRoundedRect(0, 0, w, h, 8);
+        bg.endFill();
       }
-    }
-    gridG.endFill();
-    viewport.addChildAt(gridG as any, 0);
-
-    const handleResize = () => {
-      if (containerRef.current && viewportRef.current) {
-        viewportRef.current.resize(
-          containerRef.current.clientWidth,
-          containerRef.current.clientHeight
-        );
+      if (txt) {
+        (txt.style as any).wordWrapWidth = Math.max(w - 24, 40);
+        txt.text = node.data.text ?? 'Text note';
       }
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      app.destroy(true, { children: true, texture: true, baseTexture: true });
-    };
-  }, []);
-
-  // 2. Control viewport drag tool mode
-  useEffect(() => {
-    if (!viewportRef.current) return;
-    const viewport = viewportRef.current;
-    const dragPlugin = viewport.plugins.get('drag') as any;
-
-    if (dragPlugin) {
-      dragPlugin.options.mouseButtons = activeTool === 'pan' ? 'all' : 'right';
+      break;
     }
 
-    if (containerRef.current) {
-      if (activeTool === 'pan') containerRef.current.style.cursor = 'grab';
-      else if (activeTool === 'text') containerRef.current.style.cursor = 'text';
-      else if (activeTool === 'shape') containerRef.current.style.cursor = 'crosshair';
-      else if (activeTool === 'draw') containerRef.current.style.cursor = 'pencil';
-      else if (activeTool === 'link') containerRef.current.style.cursor = 'alias';
-      else containerRef.current.style.cursor = 'default';
+    case 'sticky': {
+      const bg = container.getChildByName('bg') as PIXI.Graphics | null;
+      const content = container.getChildByName('content') as PIXI.Text | null;
+      const emojiTxt = container.getChildByName('emoji') as PIXI.Text | null;
+      const colorNum = hexToNum(node.data.stickyColor ?? '#f9de70');
+      if (bg) {
+        bg.clear();
+        bg.beginFill(colorNum, 1);
+        bg.drawRoundedRect(0, 0, w, h, 8);
+        bg.endFill();
+        // Fold effect in top-right corner
+        bg.beginFill(0x000000, 0.12);
+        bg.moveTo(w - 20, 0);
+        bg.lineTo(w, 0);
+        bg.lineTo(w, 20);
+        bg.endFill();
+      }
+      if (emojiTxt) {
+        emojiTxt.text = node.data.emoji ?? '';
+        emojiTxt.x = 10;
+        emojiTxt.y = 8;
+      }
+      if (content) {
+        (content.style as any).wordWrapWidth = Math.max(w - 20, 40);
+        content.text = node.data.text ?? 'Add note...';
+        content.y = node.data.emoji ? 36 : 14;
+      }
+      break;
     }
-  }, [activeTool]);
 
-  // 3. Pointer Handlers for Creation & Drawing
-  useEffect(() => {
-    if (!viewportRef.current) return;
-    const viewport = viewportRef.current;
-
-    const handlePointerDown = (e: PIXI.FederatedPointerEvent) => {
-      if (e.button !== 0) return;
-      setContextMenu(null);
-
-      const currentTool = activeToolRef.current;
-      const worldPos = viewport.toWorld(e.global);
-      const isCanvasClick = !e.target || e.target === viewport || (e.target as any).name === 'canvasGridDotPattern' || !(e.target as any).isCanvasNode;
-
-      if (currentTool === 'text' && isCanvasClick) {
-        const textStr = window.prompt("Enter text note:", "Note idea...");
-        if (textStr && textStr.trim()) {
-          const newNode: BoardNode = {
-            id: uuidv4(),
-            type: 'text',
-            position: { x: worldPos.x, y: worldPos.y },
-            dimensions: { width: 220, height: 110 },
-            data: {
-              text: textStr.trim(),
-              fontSize: 14,
-              color: '#3b82f6'
-            }
-          };
-          onNodesChangeRef.current([...nodesRef.current, newNode]);
-          if (onToolChangeRef.current) onToolChangeRef.current('select');
+    case 'shape': {
+      const g = container.getChildByName('shapeG') as PIXI.Graphics | null;
+      if (g) {
+        g.clear();
+        const sc = hexToNum(node.data.strokeColor ?? '#7c6bf0');
+        const fc = hexToNum(node.data.fillColor ?? '#7c6bf0');
+        const sw = node.data.strokeWidth ?? 2;
+        const fo = node.data.fillOpacity ?? 0.15;
+        const cr = node.data.cornerRadius ?? 12;
+        g.beginFill(fc, fo);
+        if (sw > 0) g.lineStyle(sw, sc, 1);
+        if (node.data.shapeType === 'circle') {
+          g.drawEllipse(w / 2, h / 2, w / 2, h / 2);
+        } else if (cr > 0) {
+          g.drawRoundedRect(0, 0, w, h, cr);
+        } else {
+          g.drawRect(0, 0, w, h);
         }
-        return;
+        g.endFill();
       }
+      break;
+    }
 
-      if (currentTool === 'shape' && isCanvasClick) {
-        const newNode: BoardNode = {
-          id: uuidv4(),
-          type: 'shape',
-          position: { x: worldPos.x, y: worldPos.y },
-          dimensions: { width: 240, height: 160 },
-          data: {
-            shapeType: 'rectangle',
-            strokeColor: '#7c6bf0',
-            strokeWidth: 2,
-            fillColor: '#7c6bf0',
-            fillOpacity: 0.15,
-            cornerRadius: 12
-          }
+    case 'section': {
+      const bg = container.getChildByName('bg') as PIXI.Graphics | null;
+      const header = container.getChildByName('header') as PIXI.Graphics | null;
+      const labelTxt = container.getChildByName('label') as PIXI.Text | null;
+      const HEADER_H = 36;
+      const colorNum = hexToNum(node.data.sectionColor ?? '#7c6bf0');
+
+      if (header) {
+        header.clear();
+        header.beginFill(colorNum, 0.85);
+        header.drawRoundedRect(0, 0, w, HEADER_H, 8);
+        header.endFill();
+      }
+      if (bg) {
+        bg.clear();
+        bg.lineStyle(2, colorNum, 0.5);
+        bg.beginFill(colorNum, 0.04);
+        bg.drawRoundedRect(0, 0, w, h, 8);
+        bg.endFill();
+      }
+      if (labelTxt) {
+        labelTxt.text = node.data.text ?? 'Section';
+        labelTxt.x = 12;
+        labelTxt.y = 9;
+      }
+      break;
+    }
+
+    case 'image': {
+      const sprite = container.getChildByName('sprite') as PIXI.Sprite | null;
+      const borderG = container.getChildByName('imageBorder') as PIXI.Graphics | null;
+      if (sprite) {
+        sprite.width = w;
+        sprite.height = h;
+      }
+      if (borderG) {
+        borderG.clear();
+        borderG.lineStyle(1, 0xffffff, 0.15);
+        borderG.drawRoundedRect(0, 0, w, h, 4);
+      }
+      break;
+    }
+
+    case 'draw': {
+      const g = container.getChildByName('drawG') as PIXI.Graphics | null;
+      if (g) {
+        g.clear();
+        const sc = hexToNum(node.data.strokeColor ?? '#7c6bf0');
+        const sw = node.data.strokeWidth ?? 4;
+        g.lineStyle(sw, sc, 1);
+        const pts = node.data.strokePoints ?? [];
+        if (pts.length > 1) {
+          g.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+        }
+      }
+      break;
+    }
+  }
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export const BoardCanvas = forwardRef<BoardCanvasHandle, BoardCanvasProps>(
+  (
+    {
+      nodes,
+      onNodesChange,
+      activeTool,
+      onToolChange,
+      onUndo,
+      onRedo,
+      onDuplicate,
+      onMoveToFront,
+      onMoveToBack,
+    },
+    ref,
+  ) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const appRef = useRef<PIXI.Application | null>(null);
+    const viewportRef = useRef<Viewport | null>(null);
+
+    // Persistent PIXI container map — never cleared, only grown and pruned
+    const nodeMapRef = useRef<Map<string, PIXI.Container>>(new Map());
+
+    // ── Closure-safe refs (all event handlers read from these) ──────────────
+    const nodesRef = useRef(nodes);
+    nodesRef.current = nodes;
+    const onNodesChangeRef = useRef(onNodesChange);
+    onNodesChangeRef.current = onNodesChange;
+    const onToolChangeRef = useRef(onToolChange);
+    onToolChangeRef.current = onToolChange;
+    const activeToolRef = useRef(activeTool);
+    activeToolRef.current = activeTool;
+    const selectedNodeIdRef = useRef<string | null>(null);
+    const rightClickedNodeIdRef = useRef<string | null>(null);
+
+    // ── React state (drives HTML overlays only) ─────────────────────────────
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [contextMenu, setContextMenu] = useState<CtxMenu | null>(null);
+    const [zoomScale, setZoomScale] = useState(1);
+    const [drawColor] = useState('#7c6bf0');
+
+    // keep ref in sync for keyboard handler
+    useEffect(() => {
+      selectedNodeIdRef.current = selectedNodeId;
+    }, [selectedNodeId]);
+
+    const selectedNode = nodes.find(n => n.id === selectedNodeId) ?? null;
+
+    // ── Freehand drawing ────────────────────────────────────────────────────
+    const isDrawingRef = useRef(false);
+    const currentStrokeRef = useRef<Position[]>([]);
+    const currentDrawGRef = useRef<PIXI.Graphics | null>(null);
+
+    // ─── Imperative handle ─────────────────────────────────────────────────
+    useImperativeHandle(ref, () => ({
+      jumpToNode: (nodeId: string) => {
+        const node = nodesRef.current.find(n => n.id === nodeId);
+        const vp = viewportRef.current;
+        if (!node || !vp) return;
+        vp.animate({
+          position: new PIXI.Point(
+            node.position.x + node.dimensions.width / 2,
+            node.position.y + node.dimensions.height / 2,
+          ),
+          time: 500,
+          ease: 'easeInOutQuad',
+          removeOnComplete: true,
+        } as any);
+      },
+      resetView: () => {
+        const vp = viewportRef.current;
+        if (!vp) return;
+        vp.setZoom(1, true);
+        vp.moveCenter(0, 0);
+        setZoomScale(1);
+      },
+    }));
+
+    // ── 1. PIXI Init (once) ────────────────────────────────────────────────
+    useEffect(() => {
+      if (!containerRef.current) return;
+
+      const app = new PIXI.Application({
+        resizeTo: containerRef.current,
+        backgroundColor: 0x121216,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true,
+        antialias: true,
+      });
+      containerRef.current.appendChild(app.view as HTMLCanvasElement);
+      appRef.current = app;
+
+      const viewport = new Viewport({
+        screenWidth: containerRef.current.clientWidth,
+        screenHeight: containerRef.current.clientHeight,
+        worldWidth: 40000,
+        worldHeight: 40000,
+        events: app.renderer.events as any,
+      } as any);
+
+      app.stage.addChild(viewport as any);
+      viewportRef.current = viewport;
+
+      viewport.sortableChildren = true;
+
+      viewport
+        .drag({ mouseButtons: 'right' })
+        .pinch()
+        .wheel()
+        .decelerate();
+
+      // ── Efficient dot-grid via TilingSprite ──────────────────────────────
+      const TILE = 50;
+      const dotG = new PIXI.Graphics();
+      dotG.beginFill(0x555566, 0.8);
+      dotG.drawCircle(TILE / 2, TILE / 2, 2);
+      dotG.endFill();
+      const rt = PIXI.RenderTexture.create({ width: TILE, height: TILE });
+      app.renderer.render(dotG, { renderTexture: rt });
+      dotG.destroy();
+
+      const grid = new PIXI.TilingSprite(rt, 40000, 40000);
+      grid.position.set(-20000, -20000);
+      (grid as any).eventMode = 'none';
+      (grid as any).interactive = false;
+      grid.zIndex = -100;
+      viewport.addChild(grid as any);
+
+      // ── Resize handler ───────────────────────────────────────────────────
+      const handleResize = () => {
+        if (containerRef.current && viewportRef.current) {
+          viewportRef.current.resize(
+            containerRef.current.clientWidth,
+            containerRef.current.clientHeight,
+          );
+        }
+      };
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        app.destroy(true, { children: true, texture: true, baseTexture: true });
+      };
+    }, []);
+
+    // ── 2. Tool mode (cursor + drag mode) ─────────────────────────────────
+    useEffect(() => {
+      const vp = viewportRef.current;
+      if (!vp) return;
+      const drag = vp.plugins.get('drag') as any;
+      if (drag) {
+        drag.options.mouseButtons = activeTool === 'pan' ? 'all' : 'right';
+      }
+      if (containerRef.current) {
+        const cursors: Record<string, string> = {
+          pan: 'grab',
+          text: 'text',
+          shape: 'crosshair',
+          sticky: 'cell',
+          section: 'crosshair',
+          draw: 'crosshair',
+          link: 'alias',
         };
-        onNodesChangeRef.current([...nodesRef.current, newNode]);
-        if (onToolChangeRef.current) onToolChangeRef.current('select');
-        return;
+        containerRef.current.style.cursor = cursors[activeTool] ?? 'default';
       }
+    }, [activeTool]);
 
-      if (currentTool === 'draw') {
-        isDrawingRef.current = true;
-        viewport.plugins.pause('drag');
-        currentStrokeRef.current = [{ x: worldPos.x, y: worldPos.y }];
+    // ── 3. Viewport-level pointer handlers (creation + drawing) ───────────
+    useEffect(() => {
+      const vp = viewportRef.current;
+      if (!vp) return;
 
-        const g = new PIXI.Graphics();
-        viewport.addChild(g as any);
-        currentDrawGraphicsRef.current = g;
-        return;
-      }
+      const onDown = (e: PIXI.FederatedPointerEvent) => {
+        if (e.button !== 0) return;
+        setContextMenu(null);
 
-      if (isCanvasClick && currentTool === 'select') {
-        setSelectedNodeId(null);
-      }
-    };
+        const tool = activeToolRef.current;
+        const worldPos = vp.toWorld(e.global.x, e.global.y);
 
-    const handlePointerMove = (e: PIXI.FederatedPointerEvent) => {
-      if (!isDrawingRef.current || !currentDrawGraphicsRef.current) return;
+        // Determine if click is on empty canvas (not on an existing node)
+        const target = e.target as any;
+        const onCanvas =
+          !target ||
+          target === vp ||
+          target.name === '__grid' ||
+          !target.isCanvasNode;
 
-      const worldPos = viewport.toWorld(e.global);
-      currentStrokeRef.current.push({ x: worldPos.x, y: worldPos.y });
+        if (!onCanvas) return; // let node containers handle it
 
-      const g = currentDrawGraphicsRef.current;
-      g.clear();
-      g.lineStyle(4, 0x7c6bf0, 1);
-
-      const points = currentStrokeRef.current;
-      if (points.length > 0) {
-        g.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) {
-          g.lineTo(points[i].x, points[i].y);
+        if (tool === 'text' && onCanvas) {
+          const textStr = window.prompt('Enter text note:', '');
+          if (textStr?.trim()) {
+            const n: BoardNode = {
+              id: uuidv4(), type: 'text',
+              position: { x: worldPos.x, y: worldPos.y },
+              dimensions: { width: 220, height: 110 },
+              zIndex: NODE_DEFAULT_Z.text, locked: false, hidden: false,
+              data: { text: textStr.trim(), fontSize: 14, fontColor: '#ffffff' },
+            };
+            onNodesChangeRef.current([...nodesRef.current, n]);
+            if (onToolChangeRef.current) onToolChangeRef.current('select');
+          }
+          return;
         }
-      }
-    };
 
-    const handlePointerUp = () => {
-      if (isDrawingRef.current) {
+        if (tool === 'shape' && onCanvas) {
+          const n: BoardNode = {
+            id: uuidv4(), type: 'shape',
+            position: { x: worldPos.x, y: worldPos.y },
+            dimensions: { width: 240, height: 160 },
+            zIndex: NODE_DEFAULT_Z.shape, locked: false, hidden: false,
+            data: {
+              shapeType: 'rectangle',
+              strokeColor: '#7c6bf0', strokeWidth: 2,
+              fillColor: '#7c6bf0', fillOpacity: 0.15, cornerRadius: 12,
+            },
+          };
+          onNodesChangeRef.current([...nodesRef.current, n]);
+          if (onToolChangeRef.current) onToolChangeRef.current('select');
+          return;
+        }
+
+        if (tool === 'sticky' && onCanvas) {
+          const color = STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
+          const textStr = window.prompt('Sticky note text:', '');
+          const n: BoardNode = {
+            id: uuidv4(), type: 'sticky',
+            position: { x: worldPos.x, y: worldPos.y },
+            dimensions: { width: 200, height: 200 },
+            zIndex: NODE_DEFAULT_Z.sticky, locked: false, hidden: false,
+            data: { text: textStr ?? 'Note...', stickyColor: color, fontSize: 13 },
+          };
+          onNodesChangeRef.current([...nodesRef.current, n]);
+          if (onToolChangeRef.current) onToolChangeRef.current('select');
+          return;
+        }
+
+        if (tool === 'section' && onCanvas) {
+          const label = window.prompt('Section name:', 'New Section');
+          const n: BoardNode = {
+            id: uuidv4(), type: 'section',
+            position: { x: worldPos.x, y: worldPos.y },
+            dimensions: { width: 700, height: 500 },
+            zIndex: NODE_DEFAULT_Z.section, locked: false, hidden: false,
+            data: { text: label ?? 'New Section', sectionColor: '#7c6bf0' },
+          };
+          onNodesChangeRef.current([...nodesRef.current, n]);
+          if (onToolChangeRef.current) onToolChangeRef.current('select');
+          return;
+        }
+
+        if (tool === 'draw') {
+          isDrawingRef.current = true;
+          vp.plugins.pause('drag');
+          currentStrokeRef.current = [{ x: worldPos.x, y: worldPos.y }];
+          const g = new PIXI.Graphics();
+          (g as any).zIndex = 999;
+          vp.addChild(g as any);
+          currentDrawGRef.current = g;
+          return;
+        }
+
+        // Deselect on empty canvas click
+        if (tool === 'select' && onCanvas) {
+          setSelectedNodeId(null);
+        }
+      };
+
+      const onMove = (e: PIXI.FederatedPointerEvent) => {
+        if (!isDrawingRef.current || !currentDrawGRef.current) return;
+        const worldPos = vp.toWorld(e.global.x, e.global.y);
+        currentStrokeRef.current.push({ x: worldPos.x, y: worldPos.y });
+        const g = currentDrawGRef.current;
+        g.clear();
+        g.lineStyle(4, hexToNum(drawColor), 1);
+        const pts = currentStrokeRef.current;
+        if (pts.length > 1) {
+          g.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+        }
+      };
+
+      const onUp = () => {
+        if (!isDrawingRef.current) return;
         isDrawingRef.current = false;
-        viewport.plugins.resume('drag');
+        vp.plugins.resume('drag');
 
-        if (currentDrawGraphicsRef.current) {
-          viewport.removeChild(currentDrawGraphicsRef.current as any);
-          currentDrawGraphicsRef.current.destroy();
-          currentDrawGraphicsRef.current = null;
+        if (currentDrawGRef.current) {
+          vp.removeChild(currentDrawGRef.current as any);
+          currentDrawGRef.current.destroy();
+          currentDrawGRef.current = null;
         }
 
-        const points = currentStrokeRef.current;
-        if (points.length > 1) {
-          let minX = points[0].x, maxX = points[0].x;
-          let minY = points[0].y, maxY = points[0].y;
-          points.forEach(p => {
+        const pts = currentStrokeRef.current;
+        if (pts.length > 1) {
+          // Compute bounding box and convert to relative coords
+          let minX = pts[0].x, maxX = pts[0].x;
+          let minY = pts[0].y, maxY = pts[0].y;
+          pts.forEach(p => {
             if (p.x < minX) minX = p.x;
             if (p.x > maxX) maxX = p.x;
             if (p.y < minY) minY = p.y;
             if (p.y > maxY) maxY = p.y;
           });
+          // Store relative to minX/minY so rendering doesn't offset
+          const relativePts = pts.map(p => ({ x: p.x - minX, y: p.y - minY }));
 
-          const newNode: BoardNode = {
-            id: uuidv4(),
-            type: 'draw',
+          const n: BoardNode = {
+            id: uuidv4(), type: 'draw',
             position: { x: minX, y: minY },
-            dimensions: { width: Math.max(maxX - minX, 20), height: Math.max(maxY - minY, 20) },
-            data: {
-              strokePoints: points,
-              strokeColor: '#7c6bf0',
-              strokeWidth: 4
-            }
+            dimensions: { width: Math.max(maxX - minX, 4), height: Math.max(maxY - minY, 4) },
+            zIndex: NODE_DEFAULT_Z.draw, locked: false, hidden: false,
+            data: { strokePoints: relativePts, strokeColor: drawColor, strokeWidth: 4 },
           };
-          onNodesChangeRef.current([...nodesRef.current, newNode]);
+          onNodesChangeRef.current([...nodesRef.current, n]);
         }
         currentStrokeRef.current = [];
+      };
+
+      vp.on('pointerdown', onDown);
+      vp.on('pointermove', onMove);
+      vp.on('pointerup', onUp);
+      vp.on('pointerupoutside', onUp);
+
+      return () => {
+        vp.off('pointerdown', onDown);
+        vp.off('pointermove', onMove);
+        vp.off('pointerup', onUp);
+        vp.off('pointerupoutside', onUp);
+      };
+    }, [drawColor]);
+
+    // ── 4. Node sync — create once, update in-place ────────────────────────
+    useEffect(() => {
+      const vp = viewportRef.current;
+      if (!vp) return;
+      const existing = nodeMapRef.current;
+      const currentIds = new Set(nodes.map(n => n.id));
+
+      // Prune deleted containers
+      for (const [id, c] of existing.entries()) {
+        if (!currentIds.has(id)) {
+          vp.removeChild(c as any);
+          c.destroy({ children: true });
+          existing.delete(id);
+        }
       }
-    };
 
-    viewport.on('pointerdown', handlePointerDown);
-    viewport.on('pointermove', handlePointerMove);
-    viewport.on('pointerup', handlePointerUp);
+      // Sort nodes: sections first, then by zIndex
+      const sorted = [...nodes].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
-    return () => {
-      viewport.off('pointerdown', handlePointerDown);
-      viewport.off('pointermove', handlePointerMove);
-      viewport.off('pointerup', handlePointerUp);
-    };
-  }, []);
+      sorted.forEach(node => {
+        const isSelected = node.id === selectedNodeId;
+        let container = existing.get(node.id);
 
-  // 4. Render & Sync Display Objects persistently
-  useEffect(() => {
-    if (!viewportRef.current) return;
-    const viewport = viewportRef.current;
-    const existingMap = nodeMapRef.current;
-    const currentNodesMap = new Map(nodes.map(n => [n.id, n]));
+        // ── CREATE container (runs once per node) ───────────────────────────
+        if (!container) {
+          container = new PIXI.Container();
+          (container as any).isCanvasNode = true;
+          (container as any).nodeId = node.id;
+          container.eventMode = 'static';
+          container.cursor = 'pointer';
 
-    // Remove deleted containers
-    for (const [id, container] of existingMap.entries()) {
-      if (!currentNodesMap.has(id)) {
-        viewport.removeChild(container as any);
-        container.destroy({ children: true });
-        existingMap.delete(id);
-      }
-    }
+          const nodeId = node.id; // immutable capture for closures
 
-    // Create or update containers for existing nodes
-    nodes.forEach(node => {
-      let container = existingMap.get(node.id);
-      const isSelected = selectedNodeId === node.id;
-
-      if (!container) {
-        container = new PIXI.Container();
-        container.x = node.position.x;
-        container.y = node.position.y;
-        (container as any).isCanvasNode = true;
-        (container as any).nodeId = node.id;
-        container.eventMode = 'static';
-        container.cursor = 'pointer';
-
-        // --- Node Type Renderers ---
-        if (node.type === 'image' && node.data.url) {
-          const texture = PIXI.Texture.from(node.data.url);
-          const sprite = new PIXI.Sprite(texture);
-          sprite.name = 'imageSprite';
-          sprite.width = node.dimensions.width;
-          sprite.height = node.dimensions.height;
-          container.addChild(sprite as any);
-
-          if (!texture.baseTexture.valid) {
-            texture.baseTexture.once('loaded', () => {
+          // Type-specific child creation
+          switch (node.type) {
+            case 'image': {
+              const sprite = PIXI.Sprite.from(node.data.url ?? '');
+              sprite.name = 'sprite';
               sprite.width = node.dimensions.width;
               sprite.height = node.dimensions.height;
-              appRef.current?.render();
-            });
-          }
-        } else if (node.type === 'text') {
-          const cardBg = new PIXI.Graphics();
-          cardBg.name = 'cardBg';
-          container.addChild(cardBg as any);
-
-          const textStyle = new PIXI.TextStyle({
-            fontFamily: 'Inter, sans-serif',
-            fontSize: node.data.fontSize || 14,
-            fill: '#ffffff',
-            wordWrap: true,
-            wordWrapWidth: Math.max(node.dimensions.width - 24, 40),
-          });
-
-          const pixiText = new PIXI.Text(node.data.text || 'Text Note', textStyle);
-          pixiText.name = 'pixiText';
-          pixiText.x = 12;
-          pixiText.y = 12;
-          container.addChild(pixiText as any);
-
-          container.on('dblclick', () => {
-            const updatedText = window.prompt("Edit text note:", node.data.text || '');
-            if (updatedText !== null) {
-              onNodesChangeRef.current(nodesRef.current.map(n =>
-                n.id === node.id ? { ...n, data: { ...n.data, text: updatedText } } : n
-              ));
-            }
-          });
-        } else if (node.type === 'shape') {
-          const shapeG = new PIXI.Graphics();
-          shapeG.name = 'shapeG';
-          container.addChild(shapeG as any);
-        } else if (node.type === 'draw' && node.data.strokePoints) {
-          const drawG = new PIXI.Graphics();
-          drawG.name = 'drawG';
-          container.addChild(drawG as any);
-        } else if (node.type === 'link' && node.data.assetId && node.data.connectedNodeId) {
-          const arrowG = new PIXI.Graphics();
-          arrowG.name = 'arrowG';
-          container.addChild(arrowG as any);
-        }
-
-        // Pointer Dragging for Node Movement
-        let dragging = false;
-        let startPos = { x: 0, y: 0 };
-        let nodeStartPos = { x: 0, y: 0 };
-
-        container.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-          const currentTool = activeToolRef.current;
-
-          if (currentTool === 'link') {
-            e.stopPropagation();
-            if (!linkStartNodeId) {
-              setLinkStartNodeId(node.id);
-            } else if (linkStartNodeId !== node.id) {
-              const sourceNode = nodesRef.current.find(n => n.id === linkStartNodeId);
-              if (sourceNode) {
-                const newLinkNode: BoardNode = {
-                  id: uuidv4(),
-                  type: 'link',
-                  position: { x: sourceNode.position.x, y: sourceNode.position.y },
-                  dimensions: { width: 100, height: 100 },
-                  data: {
-                    assetId: sourceNode.id,
-                    connectedNodeId: node.id
-                  }
-                };
-                onNodesChangeRef.current([...nodesRef.current, newLinkNode]);
+              container.addChild(sprite as any);
+              const borderG = new PIXI.Graphics(); borderG.name = 'imageBorder';
+              container.addChild(borderG as any);
+              // Reload when texture resolves
+              if (!sprite.texture.baseTexture.valid) {
+                sprite.texture.baseTexture.on('loaded', () => {
+                  sprite.width = node.dimensions.width;
+                  sprite.height = node.dimensions.height;
+                });
               }
-              setLinkStartNodeId(null);
+              break;
             }
-            return;
-          }
-
-          if (e.button === 0 && currentTool === 'select') {
-            e.stopPropagation();
-            setSelectedNodeId(node.id);
-            if (container) {
-              dragging = true;
-              startPos = { x: e.global.x, y: e.global.y };
-              nodeStartPos = { x: container.x, y: container.y };
-              viewport.plugins.pause('drag');
+            case 'text': {
+              const bg = new PIXI.Graphics(); bg.name = 'bg';
+              container.addChild(bg as any);
+              const txtStyle = new PIXI.TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: node.data.fontSize ?? 14,
+                fill: node.data.fontColor ?? '#ffffff',
+                wordWrap: true,
+                wordWrapWidth: Math.max(node.dimensions.width - 24, 40),
+              });
+              const txt = new PIXI.Text(node.data.text ?? 'Text note', txtStyle);
+              txt.name = 'content'; txt.x = 12; txt.y = 12;
+              container.addChild(txt as any);
+              container.on('dblclick', () => {
+                const cur = nodesRef.current.find(n => n.id === nodeId);
+                const updated = window.prompt('Edit text:', cur?.data.text ?? '');
+                if (updated !== null) {
+                  onNodesChangeRef.current(
+                    nodesRef.current.map(n => n.id === nodeId ? { ...n, data: { ...n.data, text: updated } } : n),
+                  );
+                }
+              });
+              break;
             }
-          }
-        });
-
-        container.on('pointerup', () => {
-          if (dragging && container) {
-            dragging = false;
-            viewport.plugins.resume('drag');
-            if (container.x !== nodeStartPos.x || container.y !== nodeStartPos.y) {
-              onNodesChangeRef.current(nodesRef.current.map(n =>
-                n.id === node.id ? { ...n, position: { x: container!.x, y: container!.y } } : n
-              ));
+            case 'sticky': {
+              const bg = new PIXI.Graphics(); bg.name = 'bg';
+              container.addChild(bg as any);
+              const emojiTxt = new PIXI.Text('', { fontFamily: 'serif', fontSize: 20 });
+              emojiTxt.name = 'emoji';
+              container.addChild(emojiTxt as any);
+              const contentStyle = new PIXI.TextStyle({
+                fontFamily: 'Inter, sans-serif',
+                fontSize: node.data.fontSize ?? 13,
+                fill: '#1a1a1a',
+                wordWrap: true,
+                wordWrapWidth: Math.max(node.dimensions.width - 20, 40),
+              });
+              const contentTxt = new PIXI.Text('', contentStyle);
+              contentTxt.name = 'content'; contentTxt.x = 10;
+              container.addChild(contentTxt as any);
+              container.on('dblclick', () => {
+                const cur = nodesRef.current.find(n => n.id === nodeId);
+                const updated = window.prompt('Edit sticky note:', cur?.data.text ?? '');
+                if (updated !== null) {
+                  onNodesChangeRef.current(
+                    nodesRef.current.map(n => n.id === nodeId ? { ...n, data: { ...n.data, text: updated } } : n),
+                  );
+                }
+              });
+              break;
             }
-          }
-        });
-
-        container.on('pointerupoutside', () => {
-          if (dragging) {
-            dragging = false;
-            viewport.plugins.resume('drag');
-          }
-        });
-
-        container.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
-          if (dragging && container) {
-            const worldPos = viewport.toWorld(e.global);
-            const startWorld = viewport.toWorld(startPos);
-            const dx = worldPos.x - startWorld.x;
-            const dy = worldPos.y - startWorld.y;
-
-            container.x = nodeStartPos.x + dx;
-            container.y = nodeStartPos.y + dy;
-          }
-        });
-
-        viewport.addChild(container as any);
-        existingMap.set(node.id, container);
-      } else {
-        container.x = node.position.x;
-        container.y = node.position.y;
-      }
-
-      // Explicit Hit Area for 100% reliable click selection across full shape area
-      container.hitArea = new PIXI.Rectangle(0, 0, node.dimensions.width, node.dimensions.height);
-
-      // --- Update Visuals & Dimensions ---
-      if (node.type === 'text') {
-        const cardBg = container.getChildByName('cardBg') as PIXI.Graphics;
-        const pixiText = container.getChildByName('pixiText') as PIXI.Text;
-        if (cardBg) {
-          cardBg.clear();
-          cardBg.beginFill(0x25252a, 0.95);
-          cardBg.lineStyle(1.5, 0x3b82f6, 0.8);
-          cardBg.drawRoundedRect(0, 0, node.dimensions.width, node.dimensions.height, 8);
-          cardBg.endFill();
-        }
-        if (pixiText) {
-          pixiText.style.wordWrapWidth = Math.max(node.dimensions.width - 24, 40);
-        }
-      } else if (node.type === 'shape') {
-        const shapeG = container.getChildByName('shapeG') as PIXI.Graphics;
-        if (shapeG) {
-          shapeG.clear();
-          const strokeColorStr = node.data.strokeColor || '#7c6bf0';
-          const strokeColorNum = parseInt(strokeColorStr.replace('#', '0x'), 16);
-          const fillColorStr = node.data.fillColor || '#7c6bf0';
-          const fillColorNum = parseInt(fillColorStr.replace('#', '0x'), 16);
-          const strokeWidth = node.data.strokeWidth !== undefined ? node.data.strokeWidth : 2;
-          const fillOpacity = node.data.fillOpacity !== undefined ? node.data.fillOpacity : 0.15;
-          const cornerRadius = node.data.cornerRadius !== undefined ? node.data.cornerRadius : 12;
-
-          shapeG.beginFill(fillColorNum, fillOpacity);
-          if (strokeWidth > 0) {
-            shapeG.lineStyle(strokeWidth, strokeColorNum, 1);
-          }
-          if (cornerRadius > 0) {
-            shapeG.drawRoundedRect(0, 0, node.dimensions.width, node.dimensions.height, cornerRadius);
-          } else {
-            shapeG.drawRect(0, 0, node.dimensions.width, node.dimensions.height);
-          }
-          shapeG.endFill();
-        }
-      } else if (node.type === 'draw') {
-        const drawG = container.getChildByName('drawG') as PIXI.Graphics;
-        if (drawG) {
-          drawG.clear();
-          const strokeColorStr = node.data.strokeColor || '#7c6bf0';
-          const strokeColorNum = parseInt(strokeColorStr.replace('#', '0x'), 16);
-          drawG.lineStyle(node.data.strokeWidth || 4, strokeColorNum, 1);
-          const pts = node.data.strokePoints || [];
-          if (pts.length > 0) {
-            drawG.moveTo(pts[0].x - node.position.x, pts[0].y - node.position.y);
-            for (let i = 1; i < pts.length; i++) {
-              drawG.lineTo(pts[i].x - node.position.x, pts[i].y - node.position.y);
+            case 'shape': {
+              const g = new PIXI.Graphics(); g.name = 'shapeG';
+              container.addChild(g as any);
+              break;
+            }
+            case 'section': {
+              const bg = new PIXI.Graphics(); bg.name = 'bg';
+              container.addChild(bg as any);
+              const header = new PIXI.Graphics(); header.name = 'header';
+              container.addChild(header as any);
+              const labelStyle = new PIXI.TextStyle({
+                fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 'bold',
+                fill: '#ffffff',
+              });
+              const labelTxt = new PIXI.Text('', labelStyle);
+              labelTxt.name = 'label';
+              container.addChild(labelTxt as any);
+              container.on('dblclick', () => {
+                const cur = nodesRef.current.find(n => n.id === nodeId);
+                const updated = window.prompt('Section name:', cur?.data.text ?? '');
+                if (updated !== null) {
+                  onNodesChangeRef.current(
+                    nodesRef.current.map(n => n.id === nodeId ? { ...n, data: { ...n.data, text: updated } } : n),
+                  );
+                }
+              });
+              break;
+            }
+            case 'draw': {
+              const g = new PIXI.Graphics(); g.name = 'drawG';
+              container.addChild(g as any);
+              break;
             }
           }
-        }
-      } else if (node.type === 'image') {
-        const sprite = container.getChildByName('imageSprite') as PIXI.Sprite;
-        if (sprite) {
-          sprite.width = node.dimensions.width;
-          sprite.height = node.dimensions.height;
-        }
-      }
 
-      // --- Selection Bounding Box & Interactive Corner Resize Handle ---
-      let selectionG = container.getChildByName('selectionG') as PIXI.Graphics;
-      let handle = container.getChildByName('resizeHandle') as PIXI.Graphics;
+          // Always-present selection ring + resize handle (initially hidden)
+          const selG = new PIXI.Graphics(); selG.name = 'sel'; selG.visible = false;
+          container.addChild(selG as any);
 
-      if (isSelected) {
-        if (!selectionG) {
-          selectionG = new PIXI.Graphics();
-          selectionG.name = 'selectionG';
-          container.addChild(selectionG as any);
-        }
-        selectionG.clear();
-        selectionG.lineStyle(2, 0x3b82f6, 1);
-        selectionG.drawRoundedRect(-4, -4, node.dimensions.width + 8, node.dimensions.height + 8, 6);
-
-        // Add Interactive Bottom-Right Corner Resize Handle
-        if (!handle) {
-          handle = new PIXI.Graphics();
-          handle.name = 'resizeHandle';
+          const handle = new PIXI.Graphics();
+          handle.name = 'handle';
+          handle.visible = false;
           (handle as any).eventMode = 'static';
           handle.cursor = 'nwse-resize';
+          container.addChild(handle as any);
 
+          // ── Drag state (local to this container) ─────────────────────────
+          let dragging = false;
+          let startGlobal = { x: 0, y: 0 };
+          let startContainerPos = { x: 0, y: 0 };
+
+          // ── Resize state ──────────────────────────────────────────────────
           let resizing = false;
-          let startPointer = { x: 0, y: 0 };
-          let startDimensions = { width: 0, height: 0 };
+          let resizeStartGlobal = { x: 0, y: 0 };
+          let resizeStartDim = { width: 0, height: 0 };
+          let resizeCurrent = { width: 0, height: 0 };
 
+          // ── Node pointer events ───────────────────────────────────────────
+          container.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+            const currentNode = nodesRef.current.find(n => n.id === nodeId);
+            if (!currentNode || currentNode.locked) return;
+
+            if (e.button === 2) {
+              rightClickedNodeIdRef.current = nodeId;
+              return;
+            }
+
+            if (e.button !== 0) return;
+            const tool = activeToolRef.current;
+
+            if (tool === 'link') {
+              e.stopPropagation();
+              // Link tool handled by App level for now
+              return;
+            }
+
+            if (tool === 'select') {
+              e.stopPropagation();
+              setSelectedNodeId(nodeId);
+              selectedNodeIdRef.current = nodeId;
+              dragging = true;
+              startGlobal = { x: e.global.x, y: e.global.y };
+              startContainerPos = { x: container!.x, y: container!.y };
+              viewportRef.current?.plugins.pause('drag');
+            }
+          });
+
+          container.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
+            if (!dragging || !container) return;
+            const vp = viewportRef.current; if (!vp) return;
+            const world = vp.toWorld(e.global.x, e.global.y);
+            const startWorld = vp.toWorld(startGlobal.x, startGlobal.y);
+            container.x = startContainerPos.x + (world.x - startWorld.x);
+            container.y = startContainerPos.y + (world.y - startWorld.y);
+          });
+
+          container.on('pointerup', () => {
+            if (!dragging) return;
+            dragging = false;
+            viewportRef.current?.plugins.resume('drag');
+            const cx = container!.x; const cy = container!.y;
+            if (cx !== startContainerPos.x || cy !== startContainerPos.y) {
+              onNodesChangeRef.current(
+                nodesRef.current.map(n =>
+                  n.id === nodeId ? { ...n, position: { x: cx, y: cy } } : n,
+                ),
+              );
+            }
+          });
+
+          container.on('pointerupoutside', () => {
+            if (!dragging) return;
+            dragging = false;
+            viewportRef.current?.plugins.resume('drag');
+          });
+
+          // ── Resize handle events ──────────────────────────────────────────
           handle.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
             e.stopPropagation();
+            const cur = nodesRef.current.find(n => n.id === nodeId);
+            if (!cur) return;
             resizing = true;
-            startPointer = { x: e.global.x, y: e.global.y };
-            startDimensions = { width: node.dimensions.width, height: node.dimensions.height };
-            viewport.plugins.pause('drag');
+            resizeStartGlobal = { x: e.global.x, y: e.global.y };
+            resizeStartDim = { ...cur.dimensions };
+            resizeCurrent = { ...cur.dimensions };
+            viewportRef.current?.plugins.pause('drag');
           });
 
           handle.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
-            if (resizing) {
-              const worldPos = viewport.toWorld(e.global);
-              const startWorld = viewport.toWorld(startPointer);
-              const dw = worldPos.x - startWorld.x;
-              const dh = worldPos.y - startWorld.y;
-
-              const newWidth = Math.max(startDimensions.width + dw, 40);
-              const newHeight = Math.max(startDimensions.height + dh, 40);
-
-              onNodesChangeRef.current(nodesRef.current.map(n =>
-                n.id === node.id ? { ...n, dimensions: { width: newWidth, height: newHeight } } : n
-              ));
+            if (!resizing) return;
+            const vp = viewportRef.current; if (!vp) return;
+            const world = vp.toWorld(e.global.x, e.global.y);
+            const startWorld = vp.toWorld(resizeStartGlobal.x, resizeStartGlobal.y);
+            const nw = Math.max(resizeStartDim.width + (world.x - startWorld.x), 40);
+            const nh = Math.max(resizeStartDim.height + (world.y - startWorld.y), 40);
+            resizeCurrent = { width: nw, height: nh };
+            // Direct PIXI update for smooth feedback
+            const cur = nodesRef.current.find(n => n.id === nodeId);
+            if (cur) {
+              container!.hitArea = new PIXI.Rectangle(0, 0, nw, nh);
+              handle.x = nw; handle.y = nh;
+              const selG = container!.getChildByName('sel') as PIXI.Graphics | null;
+              if (selG) drawSelectionRing(selG, nw, nh);
+              redrawVisuals(container!, cur, nw, nh);
             }
           });
 
           const stopResize = () => {
-            if (resizing) {
-              resizing = false;
-              viewport.plugins.resume('drag');
+            if (!resizing) return;
+            resizing = false;
+            viewportRef.current?.plugins.resume('drag');
+            if (resizeCurrent.width > 0) {
+              onNodesChangeRef.current(
+                nodesRef.current.map(n =>
+                  n.id === nodeId ? { ...n, dimensions: resizeCurrent } : n,
+                ),
+              );
             }
+            resizeCurrent = { width: 0, height: 0 };
           };
 
           handle.on('pointerup', stopResize);
           handle.on('pointerupoutside', stopResize);
 
-          container.addChild(handle as any);
+          vp.addChild(container as any);
+          existing.set(nodeId, container);
         }
 
-        handle.clear();
-        handle.lineStyle(2, 0xffffff, 1);
-        handle.beginFill(0x3b82f6, 1);
-        handle.drawCircle(0, 0, 7);
-        handle.endFill();
-        handle.x = node.dimensions.width;
-        handle.y = node.dimensions.height;
-      } else {
-        if (selectionG) {
-          container.removeChild(selectionG as any);
-          selectionG.destroy();
+        // ── UPDATE (runs every render for every node) ───────────────────────
+        container.x = node.position.x;
+        container.y = node.position.y;
+        container.visible = !node.hidden;
+        container.alpha = node.locked ? 0.65 : 1;
+        container.zIndex = node.zIndex ?? NODE_DEFAULT_Z[node.type];
+        container.hitArea = new PIXI.Rectangle(0, 0, node.dimensions.width, node.dimensions.height);
+
+        // Redraw type-specific visuals
+        redrawVisuals(container, node);
+
+        // Selection ring
+        const selG = container.getChildByName('sel') as PIXI.Graphics | null;
+        if (selG) {
+          selG.visible = isSelected;
+          if (isSelected) drawSelectionRing(selG, node.dimensions.width, node.dimensions.height);
         }
+
+        // Resize handle
+        const handle = container.getChildByName('handle') as PIXI.Graphics | null;
         if (handle) {
-          container.removeChild(handle as any);
-          handle.destroy();
+          handle.visible = isSelected;
+          if (isSelected) {
+            drawResizeHandle(handle);
+            handle.x = node.dimensions.width;
+            handle.y = node.dimensions.height;
+          }
         }
-      }
+      });
+    }, [nodes, selectedNodeId]);
 
-      // Re-draw dynamic arrow lines if node is a link
-      if (node.type === 'link' && node.data.assetId && node.data.connectedNodeId) {
-        const sourceNode = currentNodesMap.get(node.data.assetId);
-        const targetNode = currentNodesMap.get(node.data.connectedNodeId);
-        const arrowG = container.getChildByName('arrowG') as PIXI.Graphics;
+    // ── 5. Zoom sync ───────────────────────────────────────────────────────
+    useEffect(() => {
+      const vp = viewportRef.current;
+      if (!vp) return;
+      const onZoom = () => setZoomScale(vp.scale.x);
+      vp.on('zoomed', onZoom);
+      return () => { vp.off('zoomed', onZoom); };
+    }, []);
 
-        if (sourceNode && targetNode && arrowG) {
-          arrowG.clear();
-          const startX = sourceNode.position.x + sourceNode.dimensions.width / 2 - container.x;
-          const startY = sourceNode.position.y + sourceNode.dimensions.height / 2 - container.y;
-          const endX = targetNode.position.x + targetNode.dimensions.width / 2 - container.x;
-          const endY = targetNode.position.y + targetNode.dimensions.height / 2 - container.y;
+    // ── 6. Keyboard shortcuts ──────────────────────────────────────────────
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        const sel = selectedNodeIdRef.current;
+        const meta = e.ctrlKey || e.metaKey;
 
-          arrowG.lineStyle(3, 0x3b82f6, 0.9);
-          arrowG.moveTo(startX, startY);
-          arrowG.lineTo(endX, endY);
+        // Undo / Redo
+        if (meta && e.key === 'z' && !e.shiftKey) { onUndo?.(); return; }
+        if (meta && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { onRedo?.(); return; }
 
-          const angle = Math.atan2(endY - startY, endX - startX);
-          const headLen = 12;
-          arrowG.beginFill(0x3b82f6, 1);
-          arrowG.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6), endY - headLen * Math.sin(angle - Math.PI / 6));
-          arrowG.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6), endY - headLen * Math.sin(angle + Math.PI / 6));
-          arrowG.lineTo(endX, endY);
-          arrowG.endFill();
+        // Duplicate
+        if (meta && e.key === 'd' && sel) { e.preventDefault(); onDuplicate?.(sel); return; }
+
+        // Delete selected node
+        if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
+          // Don't delete if user is typing in an input
+          if (['INPUT', 'TEXTAREA'].includes((document.activeElement as HTMLElement)?.tagName)) return;
+          onNodesChangeRef.current(nodesRef.current.filter(n => n.id !== sel));
+          setSelectedNodeId(null);
+          return;
         }
-      }
-    });
-  }, [nodes, selectedNodeId]);
 
-  // 5. Handle HTML5 Asset Drop from Library Sidebar onto Board Canvas
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!viewportRef.current || !containerRef.current) return;
+        // Escape
+        if (e.key === 'Escape') { setContextMenu(null); setSelectedNodeId(null); }
 
-    let asset: any = null;
-    const jsonStr = e.dataTransfer.getData('application/json');
-    if (jsonStr) {
-      try { asset = JSON.parse(jsonStr); } catch (_) {}
-    }
+        // Layer shortcuts
+        if (meta && e.key === ']' && sel) { onMoveToFront?.(sel); }
+        if (meta && e.key === '[' && sel) { onMoveToBack?.(sel); }
 
-    if (!asset) {
-      const url = e.dataTransfer.getData('text/plain');
-      if (url) {
-        asset = { id: uuidv4(), url, title: 'Dropped Asset', width: 320, height: 240 };
-      }
-    }
-
-    if (!asset || !asset.url) return;
-
-    try {
-      const rect = containerRef.current.getBoundingClientRect();
-      const screenX = e.clientX - rect.left;
-      const screenY = e.clientY - rect.top;
-      const worldPos = viewportRef.current.toWorld(screenX, screenY);
-
-      let width = 320;
-      let height = 320;
-      if (asset.width && asset.height) {
-        const aspect = asset.width / asset.height;
-        const MAX_DIM = 380;
-        if (asset.width > asset.height) {
-          width = Math.min(asset.width, MAX_DIM);
-          height = width / aspect;
-        } else {
-          height = Math.min(asset.height, MAX_DIM);
-          width = height * aspect;
-        }
-      }
-
-      const newNode: BoardNode = {
-        id: uuidv4(),
-        type: 'image',
-        position: { x: worldPos.x, y: worldPos.y },
-        dimensions: { width, height },
-        data: {
-          assetId: asset.id,
-          url: asset.url,
-          text: asset.title
+        // Tool shortcuts
+        if (!meta && !e.shiftKey) {
+          if (e.key === 'v') onToolChangeRef.current?.('select');
+          if (e.key === 'h') onToolChangeRef.current?.('pan');
+          if (e.key === 't') onToolChangeRef.current?.('text');
+          if (e.key === 's') onToolChangeRef.current?.('shape');
+          if (e.key === 'd') onToolChangeRef.current?.('draw');
         }
       };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [onUndo, onRedo, onDuplicate, onMoveToFront, onMoveToBack]);
 
-      onNodesChangeRef.current([...nodesRef.current, newNode]);
-    } catch (err) {
-      console.error("Failed to ingest dropped asset onto canvas:", err);
-    }
-  }, []);
+    // ── Drag-drop handler (fixed for Tauri webview) ────────────────────────
+    const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  };
+      const vp = viewportRef.current;
+      const div = containerRef.current;
+      if (!vp || !div) return;
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (!containerRef.current || !viewportRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const screenX = e.clientX - rect.left;
-    const screenY = e.clientY - rect.top;
-    const worldPos = viewportRef.current.toWorld(screenX, screenY);
-    setContextMenu({ x: e.clientX, y: e.clientY, worldX: worldPos.x, worldY: worldPos.y });
-  };
-
-  const [zoomScale, setZoomScale] = useState(1);
-
-  useEffect(() => {
-    if (!viewportRef.current) return;
-    const viewport = viewportRef.current;
-    const handleZoom = () => {
-      setZoomScale(viewport.scale.x);
-    };
-    viewport.on('zoomed', handleZoom);
-    return () => {
-      viewport.off('zoomed', handleZoom);
-    };
-  }, []);
-
-  const handleZoomIn = () => {
-    if (viewportRef.current) {
-      viewportRef.current.zoomPercent(0.25, true);
-      setZoomScale(viewportRef.current.scale.x);
-    }
-  };
-
-  const handleZoomOut = () => {
-    if (viewportRef.current) {
-      viewportRef.current.zoomPercent(-0.25, true);
-      setZoomScale(viewportRef.current.scale.x);
-    }
-  };
-
-  const handleZoomReset = () => {
-    if (viewportRef.current) {
-      viewportRef.current.setZoom(1, true);
-      setZoomScale(1);
-    }
-  };
-
-  // Keyboard Delete & Escape Handlers
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeIdRef.current) {
-        onNodesChangeRef.current(nodesRef.current.filter(n => n.id !== selectedNodeIdRef.current));
-        setSelectedNodeId(null);
-      } else if (e.key === 'Escape') {
-        setContextMenu(null);
+      // Try global fallback first (most reliable in Tauri)
+      let asset: any = (window as any).__artgridDragAsset ?? null;
+      if (!asset) {
+        const jsonStr = e.dataTransfer.getData('application/json');
+        if (jsonStr) try { asset = JSON.parse(jsonStr); } catch (_) { /* ignore */ }
       }
+      if (!asset) {
+        const url = e.dataTransfer.getData('text/plain');
+        if (url) asset = { id: uuidv4(), url, title: 'Dropped Image', width: 400, height: 300 };
+      }
+      (window as any).__artgridDragAsset = null;
+
+      if (!asset?.url) return;
+
+      const rect = div.getBoundingClientRect();
+      const worldPos = vp.toWorld(e.clientX - rect.left, e.clientY - rect.top);
+
+      let w = 380, h = 380;
+      if (asset.width && asset.height) {
+        const aspect = asset.width / asset.height;
+        const MAX = 480;
+        if (aspect > 1) { w = Math.min(asset.width, MAX); h = w / aspect; }
+        else { h = Math.min(asset.height, MAX); w = h * aspect; }
+      }
+
+      const n: BoardNode = {
+        id: uuidv4(), type: 'image',
+        position: { x: worldPos.x - w / 2, y: worldPos.y - h / 2 },
+        dimensions: { width: w, height: h },
+        zIndex: NODE_DEFAULT_Z.image, locked: false, hidden: false,
+        data: { assetId: asset.id, url: asset.url, text: asset.title, cropMode: 'cover' },
+      };
+      onNodesChangeRef.current([...nodesRef.current, n]);
+    }, []);
+
+    const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
-  const updateSelectedNodeData = (newData: Partial<BoardNode['data']>) => {
-    if (!selectedNodeId) return;
-    onNodesChange(nodes.map(n =>
-      n.id === selectedNodeId ? { ...n, data: { ...n.data, ...newData } } : n
-    ));
-  };
+    // ── Context menu ───────────────────────────────────────────────────────
+    const handleContextMenu = (e: React.MouseEvent) => {
+      e.preventDefault();
+      const vp = viewportRef.current;
+      const div = containerRef.current;
+      if (!vp || !div) return;
+      const rect = div.getBoundingClientRect();
+      const worldPos = vp.toWorld(e.clientX - rect.left, e.clientY - rect.top);
+      setContextMenu({
+        x: e.clientX, y: e.clientY,
+        worldX: worldPos.x, worldY: worldPos.y,
+        nodeId: rightClickedNodeIdRef.current ?? undefined,
+      });
+      rightClickedNodeIdRef.current = null;
+    };
 
-  return (
-    <div 
-      ref={containerRef} 
-      style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onContextMenu={handleContextMenu}
-      onClick={() => setContextMenu(null)}
-    >
-      {/* Floating Property Inspector Bar for Selected Shape */}
-      {selectedNode && (selectedNode.type === 'shape' || selectedNode.type === 'draw') && (
-        <div style={{
-          position: 'absolute',
-          top: 16,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 60,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-subtle)',
-          padding: '6px 14px',
-          borderRadius: 8,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-          fontSize: '0.8rem',
-          color: 'var(--text-primary)'
-        }}>
-          {selectedNode.type === 'shape' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <span>Fill:</span>
-              <input 
-                type="color" 
-                value={selectedNode.data.fillColor || '#7c6bf0'}
-                onChange={e => updateSelectedNodeData({ fillColor: e.target.value })}
-                style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-              />
-            </label>
-          )}
-          {selectedNode.type === 'shape' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>Opacity:</span>
-              <input 
-                type="range" min="0" max="1" step="0.05"
-                value={selectedNode.data.fillOpacity ?? 0.15}
-                onChange={e => updateSelectedNodeData({ fillOpacity: parseFloat(e.target.value) })}
-                style={{ width: 60 }}
-              />
-            </label>
-          )}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <span>Border:</span>
-            <input 
-              type="color" 
-              value={selectedNode.data.strokeColor || '#7c6bf0'}
-              onChange={e => updateSelectedNodeData({ strokeColor: e.target.value })}
-              style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-            />
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>Width:</span>
-            <input 
-              type="number" min="0" max="20"
-              value={selectedNode.data.strokeWidth ?? 2}
-              onChange={e => updateSelectedNodeData({ strokeWidth: parseInt(e.target.value) || 0 })}
-              style={{ width: 44, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '2px 4px' }}
-            />
-          </label>
-          {selectedNode.type === 'shape' && (
-            <button 
-              className="btn btn--secondary" 
-              style={{ padding: '2px 8px', fontSize: '0.75rem' }}
-              onClick={() => updateSelectedNodeData({ cornerRadius: selectedNode.data.cornerRadius === 0 ? 16 : 0 })}
-            >
-              {selectedNode.data.cornerRadius === 0 ? 'Make Rounded ▢' : 'Make Sharp ⬛'}
-            </button>
-          )}
-        </div>
-      )}
+    const addNodeFromMenu = (type: NodeType) => {
+      if (!contextMenu) return;
+      const { worldX: wx, worldY: wy } = contextMenu;
 
-      {/* Right-Click Context Menu Overlay */}
-      {contextMenu && (
-        <div style={{
-          position: 'fixed',
-          top: contextMenu.y,
-          left: contextMenu.x,
-          zIndex: 100,
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 8,
-          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-          padding: '6px 0',
-          minWidth: 160,
-          backdropFilter: 'blur(12px)'
-        }}>
-          <div 
-            style={{ padding: '8px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={() => {
-              const textStr = window.prompt("Enter text note:", "Note idea...");
-              if (textStr && textStr.trim()) {
-                const newNode: BoardNode = {
-                  id: uuidv4(),
-                  type: 'text',
-                  position: { x: contextMenu.worldX, y: contextMenu.worldY },
-                  dimensions: { width: 220, height: 110 },
-                  data: { text: textStr.trim(), fontSize: 14, color: '#3b82f6' }
-                };
-                onNodesChange([...nodes, newNode]);
-              }
-              setContextMenu(null);
-            }}
-          >
-            📝 Add Text Note
-          </div>
-          <div 
-            style={{ padding: '8px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={() => {
-              const newNode: BoardNode = {
-                id: uuidv4(),
-                type: 'shape',
-                position: { x: contextMenu.worldX, y: contextMenu.worldY },
-                dimensions: { width: 240, height: 160 },
-                data: { shapeType: 'rectangle', strokeColor: '#7c6bf0', strokeWidth: 2, fillColor: '#7c6bf0', fillOpacity: 0.15, cornerRadius: 12 }
-              };
-              onNodesChange([...nodes, newNode]);
-              setContextMenu(null);
-            }}
-          >
-            ⬛ Add Shape Frame
-          </div>
-          <div 
-            style={{ padding: '8px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={() => {
-              if (onToolChange) onToolChange('draw');
-              setContextMenu(null);
-            }}
-          >
-            🎨 Freehand Pencil
-          </div>
-          <div 
-            style={{ padding: '8px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-            onClick={() => {
-              if (onToolChange) onToolChange('link');
-              setContextMenu(null);
-            }}
-          >
-            🔗 Connect Arrow Link
-          </div>
-        </div>
-      )}
+      if (type === 'text') {
+        const textStr = window.prompt('Text note:', '');
+        if (!textStr?.trim()) { setContextMenu(null); return; }
+        const n: BoardNode = {
+          id: uuidv4(), type: 'text',
+          position: { x: wx, y: wy }, dimensions: { width: 220, height: 110 },
+          zIndex: NODE_DEFAULT_Z.text, locked: false, hidden: false,
+          data: { text: textStr.trim(), fontSize: 14, fontColor: '#ffffff' },
+        };
+        onNodesChangeRef.current([...nodesRef.current, n]);
+      } else if (type === 'shape') {
+        const n: BoardNode = {
+          id: uuidv4(), type: 'shape',
+          position: { x: wx, y: wy }, dimensions: { width: 240, height: 160 },
+          zIndex: NODE_DEFAULT_Z.shape, locked: false, hidden: false,
+          data: { shapeType: 'rectangle', strokeColor: '#7c6bf0', strokeWidth: 2, fillColor: '#7c6bf0', fillOpacity: 0.15, cornerRadius: 12 },
+        };
+        onNodesChangeRef.current([...nodesRef.current, n]);
+      } else if (type === 'sticky') {
+        const color = STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
+        const textStr = window.prompt('Sticky note:', '');
+        const n: BoardNode = {
+          id: uuidv4(), type: 'sticky',
+          position: { x: wx, y: wy }, dimensions: { width: 200, height: 200 },
+          zIndex: NODE_DEFAULT_Z.sticky, locked: false, hidden: false,
+          data: { text: textStr ?? 'Note...', stickyColor: color, fontSize: 13 },
+        };
+        onNodesChangeRef.current([...nodesRef.current, n]);
+      } else if (type === 'section') {
+        const label = window.prompt('Section name:', 'New Section');
+        const n: BoardNode = {
+          id: uuidv4(), type: 'section',
+          position: { x: wx - 40, y: wy - 20 }, dimensions: { width: 700, height: 500 },
+          zIndex: NODE_DEFAULT_Z.section, locked: false, hidden: false,
+          data: { text: label ?? 'New Section', sectionColor: '#7c6bf0' },
+        };
+        onNodesChangeRef.current([...nodesRef.current, n]);
+      }
+      setContextMenu(null);
+    };
 
-      {/* Canvas Zoom Controls Overlay */}
-      <div 
-        style={{
-          position: 'absolute',
-          top: 16,
-          right: 16,
-          zIndex: 50,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          background: 'var(--bg-glass)',
-          backdropFilter: 'blur(16px)',
-          padding: '4px 8px',
-          borderRadius: 8,
-          border: '1px solid var(--border-subtle)',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          color: 'var(--text-primary)',
-          userSelect: 'none'
-        }}
+    const performNodeAction = (action: string) => {
+      const nodeId = contextMenu?.nodeId;
+      if (!nodeId) { setContextMenu(null); return; }
+      switch (action) {
+        case 'duplicate': onDuplicate?.(nodeId); break;
+        case 'front': onMoveToFront?.(nodeId); break;
+        case 'back': onMoveToBack?.(nodeId); break;
+        case 'lock': {
+          const n = nodesRef.current.find(x => x.id === nodeId);
+          if (n) onNodesChangeRef.current(nodesRef.current.map(x => x.id === nodeId ? { ...x, locked: !x.locked } : x));
+          break;
+        }
+        case 'hide': {
+          const n = nodesRef.current.find(x => x.id === nodeId);
+          if (n) onNodesChangeRef.current(nodesRef.current.map(x => x.id === nodeId ? { ...x, hidden: !x.hidden } : x));
+          break;
+        }
+        case 'delete': {
+          onNodesChangeRef.current(nodesRef.current.filter(x => x.id !== nodeId));
+          setSelectedNodeId(null);
+          break;
+        }
+      }
+      setContextMenu(null);
+    };
+
+    const updateSelectedNodeData = (patch: Partial<BoardNode['data']>) => {
+      if (!selectedNodeId) return;
+      onNodesChange(nodes.map(n =>
+        n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n,
+      ));
+    };
+
+    // ── Zoom controls ──────────────────────────────────────────────────────
+    const zoom = (delta: number) => {
+      const vp = viewportRef.current; if (!vp) return;
+      vp.zoomPercent(delta, true);
+      setZoomScale(vp.scale.x);
+    };
+
+    // ─── Render ────────────────────────────────────────────────────────────
+    const ctxNode = contextMenu?.nodeId ? nodes.find(n => n.id === contextMenu.nodeId) : undefined;
+
+    return (
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onContextMenu={handleContextMenu}
+        onClick={() => setContextMenu(null)}
       >
-        <button className="toolbar__btn" style={{ padding: '2px 8px', fontSize: '14px' }} title="Zoom Out (-)" onClick={handleZoomOut}>-</button>
-        <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: 45, textAlign: 'center' }}>{Math.round(zoomScale * 100)}%</span>
-        <button className="toolbar__btn" style={{ padding: '2px 8px', fontSize: '14px' }} title="Zoom In (+)" onClick={handleZoomIn}>+</button>
-        <button className="btn btn--secondary" style={{ padding: '2px 8px', fontSize: '11px', marginLeft: 4 }} title="Reset Zoom (1:1)" onClick={handleZoomReset}>1:1</button>
+        {/* ── Shape / Draw Property Inspector ─────────────────────────────── */}
+        {selectedNode && (selectedNode.type === 'shape' || selectedNode.type === 'draw' || selectedNode.type === 'sticky' || selectedNode.type === 'section') && (
+          <div style={{
+            position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 60, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10,
+            background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)',
+            padding: '6px 14px', borderRadius: 10,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            fontSize: '0.78rem', color: 'var(--text-primary)',
+            fontFamily: 'var(--font-family)',
+          }}>
+            {(selectedNode.type === 'shape') && (<>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ opacity: 0.7 }}>Fill</span>
+                <input type="color" value={selectedNode.data.fillColor ?? '#7c6bf0'}
+                  onChange={e => updateSelectedNodeData({ fillColor: e.target.value })}
+                  style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ opacity: 0.7 }}>Opacity</span>
+                <input type="range" min={0} max={1} step={0.05}
+                  value={selectedNode.data.fillOpacity ?? 0.15}
+                  onChange={e => updateSelectedNodeData({ fillOpacity: parseFloat(e.target.value) })}
+                  style={{ width: 70 }} />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ opacity: 0.7 }}>Border</span>
+                <input type="color" value={selectedNode.data.strokeColor ?? '#7c6bf0'}
+                  onChange={e => updateSelectedNodeData({ strokeColor: e.target.value })}
+                  style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ opacity: 0.7 }}>Width</span>
+                <input type="number" min={0} max={20} value={selectedNode.data.strokeWidth ?? 2}
+                  onChange={e => updateSelectedNodeData({ strokeWidth: parseInt(e.target.value) || 0 })}
+                  style={{ width: 46, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '2px 4px' }} />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ opacity: 0.7 }}>Radius</span>
+                <input type="number" min={0} max={80} value={selectedNode.data.cornerRadius ?? 12}
+                  onChange={e => updateSelectedNodeData({ cornerRadius: parseInt(e.target.value) || 0 })}
+                  style={{ width: 46, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '2px 4px' }} />
+              </label>
+              <select value={selectedNode.data.shapeType ?? 'rectangle'}
+                onChange={e => updateSelectedNodeData({ shapeType: e.target.value as any })}
+                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'white', borderRadius: 4, padding: '2px 4px', fontSize: '0.75rem' }}>
+                <option value="rectangle">Rectangle</option>
+                <option value="circle">Circle / Ellipse</option>
+              </select>
+            </>)}
+
+            {selectedNode.type === 'section' && (<>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ opacity: 0.7 }}>Colour</span>
+                <input type="color" value={selectedNode.data.sectionColor ?? '#7c6bf0'}
+                  onChange={e => updateSelectedNodeData({ sectionColor: e.target.value })}
+                  style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
+              </label>
+            </>)}
+
+            {selectedNode.type === 'sticky' && (<>
+              <span style={{ opacity: 0.7 }}>Colour:</span>
+              {STICKY_COLORS.map(c => (
+                <button key={c} onClick={() => updateSelectedNodeData({ stickyColor: c })}
+                  style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: selectedNode.data.stickyColor === c ? '2px solid white' : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
+              ))}
+            </>)}
+
+            <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+            <span style={{ opacity: 0.5, fontSize: '0.7rem' }}>
+              {Math.round(selectedNode.dimensions.width)} × {Math.round(selectedNode.dimensions.height)}
+            </span>
+          </div>
+        )}
+
+        {/* ── Right-Click Context Menu ───────────────────────────────────── */}
+        {contextMenu && (
+          <div
+            style={{
+              position: 'fixed', top: contextMenu.y, left: contextMenu.x, zIndex: 200,
+              background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)',
+              borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+              padding: '6px 0', minWidth: 170,
+              backdropFilter: 'blur(16px)', fontFamily: 'var(--font-family)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {contextMenu.nodeId ? (
+              // Node-level actions
+              <>
+                <CtxItem icon="⿻" label="Duplicate" shortcut="⌘D" onClick={() => performNodeAction('duplicate')} />
+                <CtxItem icon="⬆" label="Bring to Front" shortcut="⌘]" onClick={() => performNodeAction('front')} />
+                <CtxItem icon="⬇" label="Send to Back" shortcut="⌘[" onClick={() => performNodeAction('back')} />
+                <CtxDivider />
+                <CtxItem icon={ctxNode?.locked ? '🔓' : '🔒'} label={ctxNode?.locked ? 'Unlock' : 'Lock'} onClick={() => performNodeAction('lock')} />
+                <CtxItem icon={ctxNode?.hidden ? '👁' : '🙈'} label={ctxNode?.hidden ? 'Show' : 'Hide'} onClick={() => performNodeAction('hide')} />
+                <CtxDivider />
+                <CtxItem icon="🗑" label="Delete" danger onClick={() => performNodeAction('delete')} />
+              </>
+            ) : (
+              // Canvas-level quick-add
+              <>
+                <div style={{ padding: '4px 12px 6px', fontSize: '0.65rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-primary)' }}>
+                  Add to Board
+                </div>
+                <CtxItem icon="📝" label="Text Note" onClick={() => addNodeFromMenu('text')} />
+                <CtxItem icon="⬛" label="Shape Frame" onClick={() => addNodeFromMenu('shape')} />
+                <CtxItem icon="📌" label="Sticky Note" onClick={() => addNodeFromMenu('sticky')} />
+                <CtxItem icon="📐" label="Section" onClick={() => addNodeFromMenu('section')} />
+                <CtxDivider />
+                <CtxItem icon="✏️" label="Freehand Draw" onClick={() => { onToolChangeRef.current?.('draw'); setContextMenu(null); }} />
+                <CtxItem icon="🔗" label="Connect Arrow" onClick={() => { onToolChangeRef.current?.('link'); setContextMenu(null); }} />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Zoom Controls ─────────────────────────────────────────────── */}
+        <div style={{
+          position: 'absolute', bottom: 20, right: 20, zIndex: 50,
+          display: 'flex', alignItems: 'center', gap: 4,
+          background: 'var(--bg-surface)', backdropFilter: 'blur(16px)',
+          border: '1px solid var(--border-subtle)', borderRadius: 8,
+          padding: '4px 8px', boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+          userSelect: 'none', fontFamily: 'var(--font-family)',
+        }}>
+          <button className="toolbar__btn" style={{ padding: '2px 8px' }} onClick={() => zoom(-0.25)} title="Zoom Out">−</button>
+          <span style={{ fontSize: '0.82rem', fontWeight: 600, minWidth: 44, textAlign: 'center', color: 'var(--text-primary)' }}>
+            {Math.round(zoomScale * 100)}%
+          </span>
+          <button className="toolbar__btn" style={{ padding: '2px 8px' }} onClick={() => zoom(0.25)} title="Zoom In">+</button>
+          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)', margin: '0 2px' }} />
+          <button className="toolbar__btn" style={{ padding: '2px 8px', fontSize: '0.72rem' }}
+            onClick={() => { const vp = viewportRef.current; if (vp) { vp.setZoom(1, true); setZoomScale(1); } }}
+            title="Reset zoom">1:1
+          </button>
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  },
+);
+
+BoardCanvas.displayName = 'BoardCanvas';
+
+// ─── Context menu helper components ──────────────────────────────────────────
+
+const CtxItem: React.FC<{
+  icon: string; label: string; shortcut?: string; onClick: () => void; danger?: boolean;
+}> = ({ icon, label, shortcut, onClick, danger }) => (
+  <div
+    onClick={onClick}
+    style={{
+      padding: '7px 14px', fontSize: '0.83rem', cursor: 'pointer',
+      display: 'flex', alignItems: 'center', gap: 8,
+      color: danger ? '#f87171' : 'var(--text-primary)',
+      transition: 'background 0.1s',
+    }}
+    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+  >
+    <span style={{ fontSize: '14px', width: 16, textAlign: 'center' }}>{icon}</span>
+    <span style={{ flex: 1 }}>{label}</span>
+    {shortcut && <span style={{ opacity: 0.4, fontSize: '0.7rem' }}>{shortcut}</span>}
+  </div>
+);
+
+const CtxDivider: React.FC = () => (
+  <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
+);
