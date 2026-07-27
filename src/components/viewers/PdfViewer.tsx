@@ -519,11 +519,42 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             <IconColumns size={15} />
           </button>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '2px', borderRadius: 6 }}>
+            <button
+              className={`toolbar__btn ${viewMode === 'flipbook' ? 'toolbar__btn--active' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setViewMode('flipbook'); }}
+              title="Flipbook View"
+            >
+              📖
+            </button>
+            <button
+              className={`toolbar__btn ${viewMode === 'scroll' ? 'toolbar__btn--active' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setViewMode('scroll'); }}
+              title="Continuous Scroll View"
+            >
+              📜
+            </button>
+          </div>
+
+          <form onSubmit={handleSearchPdf} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 6 }}>
+            <input 
+              type="text" 
+              placeholder="Search PDF..." 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', outline: 'none', width: 100, fontSize: '12px' }}
+              onClick={e => e.stopPropagation()}
+            />
+            <button type="submit" className="toolbar__btn" title="Search" disabled={isSearching}>
+              <IconSearch size={14} />
+            </button>
+          </form>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 6 }}>
             <button 
               className="toolbar__btn" 
               onClick={(e) => { e.stopPropagation(); e.preventDefault(); handlePageTurn(pdfPageNum - 1); }}
-              disabled={pdfPageNum <= 1}
+              disabled={pdfPageNum <= 1 || viewMode === 'scroll'}
               title="Previous Page"
             >
               ◀
@@ -532,7 +563,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             <button 
               className="toolbar__btn" 
               onClick={(e) => { e.stopPropagation(); e.preventDefault(); handlePageTurn(pdfPageNum + 1); }}
-              disabled={pdfPageNum >= pdfTotalPages}
+              disabled={pdfPageNum >= pdfTotalPages || viewMode === 'scroll'}
               title="Next Page"
             >
               ▶
@@ -566,6 +597,16 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
 
           <button 
             className="btn btn--secondary" 
+            onClick={handleOcrExtraction}
+            disabled={isOcrProcessing}
+            style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 6, opacity: isOcrProcessing ? 0.5 : 1 }}
+            title="Run OCR on current page or crop selection"
+          >
+            <IconSearch size={14} /> {isOcrProcessing ? 'Running OCR...' : 'OCR Scan'}
+          </button>
+
+          <button 
+            className="btn btn--secondary" 
             onClick={(e) => {
               e.stopPropagation();
               handleExtractNativePdfImages();
@@ -588,8 +629,8 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
       );
     }
   }, [
-    showPdfSidebar, pdfPageNum, pdfTotalPages, pdfScale, isCropToolActive, 
-    handleSaveExtractedTextAsAsset, handleExtractNativePdfImages, handleSnapshotPdfPage, setViewerControls
+    showPdfSidebar, pdfPageNum, pdfTotalPages, pdfScale, isCropToolActive, viewMode, searchQuery, isSearching, isOcrProcessing,
+    handleSaveExtractedTextAsAsset, handleExtractNativePdfImages, handleSnapshotPdfPage, handleSearchPdf, handleOcrExtraction, setViewerControls
   ]);
 
 
@@ -624,9 +665,24 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
       )}
 
       {/* Content Preview Area */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, overflow: 'auto', position: 'relative' }}>
-        {/* Fast 1-Page PDF Flipbook Container with 3D Page Turn Animation */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24, position: 'relative', perspective: 1400 }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: viewMode === 'scroll' ? 'flex-start' : 'center', justifyContent: 'center', padding: 24, overflow: 'auto', position: 'relative' }}>
+        {viewMode === 'scroll' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 1000, margin: '0 auto', paddingBottom: 60 }}>
+            {Array.from({ length: pdfTotalPages }, (_, i) => i + 1).map(pNum => (
+              <ScrollPageCanvas 
+                key={pNum} 
+                pdfDoc={pdfDoc} 
+                pageNum={pNum} 
+                scale={pdfScale} 
+                onVisible={(page) => {
+                  if (page !== pdfPageNum && !isSearching) setPdfPageNum(page);
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          {/* Fast 1-Page PDF Flipbook Container with 3D Page Turn Animation */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 24, position: 'relative', perspective: 1400 }}>
           {/* Previous Page Arrow Overlay */}
           <button
             onClick={() => handlePageTurn(pdfPageNum - 1)}
@@ -717,7 +773,6 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             ▶
           </button>
 
-          {/* Extract Crop Region Action Button */}
           {isCropToolActive && cropBox && Math.abs(cropBox.endX - cropBox.startX) > 10 && (
             <button 
               className="btn btn--primary" 
@@ -728,6 +783,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             </button>
           )}
         </div>
+        )}
       </div>
     </>
   );
