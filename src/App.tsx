@@ -5,7 +5,7 @@ import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { BoardCanvas } from './features/board/components/BoardCanvas';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 
@@ -100,19 +100,25 @@ const App: React.FC = () => {
   const standaloneAssetId = new URLSearchParams(window.location.search).get('previewAssetId');
   const [standaloneAsset, setStandaloneAsset] = useState<Asset | null>(null);
 
+  // Wait for vault to be initialized before loading standalone asset.
+  // The vault init chain is: loadSettings() → isLoaded=true → loadVault(savedVaultPath) → vaultPath set.
+  // Only after vaultPath is truthy is the DB connection open and get_assets will succeed.
   useEffect(() => {
-    if (standaloneAssetId) {
-      // Direct Rust IPC query for assets to guarantee instant loading in standalone window
+    if (standaloneAssetId && vaultPath) {
       invoke<Asset[]>('get_assets')
         .then(fetchedAssets => {
+          const now = Date.now();
           const found = fetchedAssets.find(a => a.id === standaloneAssetId);
           if (found) {
-            setStandaloneAsset(found);
+            setStandaloneAsset({
+              ...found,
+              url: convertFileSrc(found.url) + `?t=${now}`,
+            });
           }
         })
         .catch(err => console.error("Failed to load standalone asset via IPC:", err));
     }
-  }, [standaloneAssetId]);
+  }, [standaloneAssetId, vaultPath]);
   
   const { boards, activeBoardId, loadBoards, createBoard, setActiveBoard, renameBoard, deleteBoard } = useBoardStore();
 
