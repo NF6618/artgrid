@@ -7,11 +7,13 @@ import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { BoardCanvas } from './components/BoardCanvas';
 import { BoardNode } from './types/board';
+import { invoke } from '@tauri-apps/api/core';
 
 import { useLibrary } from './hooks/useLibrary';
 import { SettingsModal } from './components/SettingsModal';
+import { FileViewerModal } from './components/FileViewerModal';
 
-type ViewType = 'library' | 'boards' | 'graph' | 'search';
+type ViewType = 'library' | 'boards' | 'graph' | 'search' | 'favorites' | 'recent' | 'untagged' | 'archive' | 'trash';
 type ViewMode = 'grid' | 'list' | 'board';
 export type ToolType = 'select' | 'pan';
 
@@ -30,6 +32,7 @@ const App: React.FC = () => {
   
   // Data state
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
   // Board state
@@ -44,33 +47,62 @@ const App: React.FC = () => {
     }
   }, [showDetailPanel]);
 
-  const handleToggleFavorite = useCallback((id: string) => {
-    setAssets(prev => prev.map(a =>
-      a.id === id ? { ...a, favorite: !a.favorite } : a
-    ));
-    // Update selected asset if it's the one being toggled
-    setSelectedAsset(prev =>
-      prev?.id === id ? { ...prev, favorite: !prev.favorite } : prev
-    );
-  }, []);
+  const handleToggleFavorite = useCallback(async (id: string) => {
+    try {
+      // Optimistic update
+      setAssets(prev => prev.map(a =>
+        a.id === id ? { ...a, favorite: !a.favorite } : a
+      ));
+      setSelectedAsset(prev =>
+        prev?.id === id ? { ...prev, favorite: !prev.favorite } : prev
+      );
+
+      // Hit backend
+      await invoke('toggle_favorite', { id });
+    } catch (err) {
+      console.error('Failed to toggle favorite:', err);
+      // Revert on failure
+      setAssets(prev => prev.map(a =>
+        a.id === id ? { ...a, favorite: !a.favorite } : a
+      ));
+      setSelectedAsset(prev =>
+        prev?.id === id ? { ...prev, favorite: !prev.favorite } : prev
+      );
+    }
+  }, [setAssets]);
 
   const handleToggleDetailPanel = useCallback(() => {
     setShowDetailPanel(prev => !prev);
   }, []);
 
-  // Filter assets by search
-  const filteredAssets = searchQuery
-    ? assets.filter(a =>
-        a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        a.filename.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : assets;
+  // Filter assets by search and active view
+  let filteredAssets = assets;
+  
+  if (activeView === 'favorites') {
+    filteredAssets = filteredAssets.filter(a => a.favorite);
+  } else if (activeView === 'untagged') {
+    filteredAssets = filteredAssets.filter(a => !a.tags || a.tags.length === 0);
+  } else if (activeView === 'recent') {
+    // For now just sort by newest (we'll assume they are generally sorted by date_added anyway)
+    // or we can slice the first 50.
+    filteredAssets = [...filteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
+  }
+
+  if (searchQuery) {
+    filteredAssets = filteredAssets.filter(a =>
+      a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      a.filename.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }
 
   // Get title based on active view
   const getViewTitle = () => {
     switch (activeView) {
       case 'library': return activeCollection ? 'Collection' : 'All Assets';
+      case 'favorites': return 'Favorites';
+      case 'recent': return 'Recent Imports';
+      case 'untagged': return 'Untagged Assets';
       case 'boards': return 'Mood Boards';
       case 'graph': return 'Inspiration Graph';
       case 'search': return 'Search';
@@ -132,11 +164,12 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ) : activeView === 'library' || activeView === 'search' ? (
+            ) : ['library', 'search', 'favorites', 'recent', 'untagged'].includes(activeView) ? (
               <Gallery
                 assets={filteredAssets}
                 selectedAsset={selectedAsset}
                 onSelectAsset={handleSelectAsset}
+                onPreviewAsset={setPreviewAsset}
                 onToggleFavorite={handleToggleFavorite}
                 onImport={importFiles}
               />
@@ -249,6 +282,13 @@ const App: React.FC = () => {
           setShowSettings(false);
           openVault();
         }}
+      />
+
+      {/* File Viewer Modal */}
+      <FileViewerModal
+        asset={previewAsset}
+        visible={previewAsset !== null}
+        onClose={() => setPreviewAsset(null)}
       />
     </>
   );

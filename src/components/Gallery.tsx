@@ -29,6 +29,7 @@ interface GalleryProps {
   assets: Asset[];
   selectedAsset: Asset | null;
   onSelectAsset: (asset: Asset) => void;
+  onPreviewAsset?: (asset: Asset) => void;
   onToggleFavorite: (id: string) => void;
   onImport?: () => void;
 }
@@ -37,6 +38,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   assets,
   selectedAsset,
   onSelectAsset,
+  onPreviewAsset,
   onToggleFavorite,
   onImport
 }) => {
@@ -133,6 +135,7 @@ export const Gallery: React.FC<GalleryProps> = ({
               key={asset.id}
               className={`gallery__card ${isSelected ? 'gallery__card--selected' : ''}`}
               onClick={() => onSelectAsset(asset)}
+              onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
               draggable
               onDragStart={(e) => handleDragStart(e, asset)}
             >
@@ -181,7 +184,14 @@ export const Gallery: React.FC<GalleryProps> = ({
 
               {/* Action buttons */}
               <div className="gallery__card-actions">
-                <button className="gallery__card-action" title="Preview">
+                <button 
+                  className="gallery__card-action" 
+                  title="Preview"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPreviewAsset) onPreviewAsset(asset);
+                  }}
+                >
                   <IconEye size={13} />
                 </button>
                 <button className="gallery__card-action" title="More">

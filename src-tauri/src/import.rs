@@ -174,3 +174,28 @@ pub fn import_file(file_path: String, state: State<'_, AppState>) -> Result<Asse
     
     Ok(asset)
 }
+
+#[tauri::command]
+pub fn toggle_favorite(id: String, state: State<'_, AppState>) -> Result<bool, String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    // First, get the current favorite status
+    let mut stmt = conn.prepare("SELECT favorite FROM assets WHERE id = ?1").map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([&id]).map_err(|e| e.to_string())?;
+    
+    if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let current_favorite: bool = row.get(0).map_err(|e| e.to_string())?;
+        let new_favorite = !current_favorite;
+        
+        // Update the database
+        conn.execute(
+            "UPDATE assets SET favorite = ?1 WHERE id = ?2",
+            (&new_favorite, &id),
+        ).map_err(|e| e.to_string())?;
+        
+        return Ok(new_favorite);
+    }
+    
+    Err("Asset not found".to_string())
+}

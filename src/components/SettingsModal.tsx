@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -7,13 +7,34 @@ interface SettingsModalProps {
   onChangeVault: () => void;
 }
 
+type SettingsTab = 'general' | 'vaults' | 'appearance' | 'keybinds';
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   visible,
   onClose,
   vaultPath,
   onChangeVault
 }) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Mock settings state
+  const [settings, setSettings] = useState({
+    theme: 'dark',
+    accentColor: '#3b82f6',
+    defaultView: 'library',
+    autoWatch: true,
+    compactMode: false
+  });
+
   if (!visible) return null;
+
+  const handleSave = () => {
+    // In the future this will save to tauri-plugin-store
+    console.log("Saving settings...", settings);
+    setHasChanges(false);
+    onClose();
+  };
 
   return (
     <div style={{
@@ -29,15 +50,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       
       <div 
         style={{
-          width: 500,
+          width: 700,
+          height: 550,
           backgroundColor: 'var(--bg-base)',
           borderRadius: 8,
           border: '1px solid var(--border-subtle)',
           boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
         }}
         onClick={e => e.stopPropagation()}
       >
+        {/* Header */}
         <div style={{ 
           padding: '16px 24px', 
           borderBottom: '1px solid var(--border-subtle)',
@@ -58,49 +83,232 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
         
-        <div style={{ padding: '24px' }}>
+        {/* Body */}
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           
-          <div style={{ marginBottom: 24 }}>
-            <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Vault Location
-            </h3>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              padding: '12px',
-              borderRadius: 6,
-              border: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{ 
-                fontFamily: 'monospace', 
-                fontSize: '0.85rem',
-                color: 'var(--text-primary)',
-                wordBreak: 'break-all',
-                paddingRight: 16
-              }}>
-                {vaultPath || 'No vault loaded.'}
+          {/* Sidebar Tabs */}
+          <div style={{ 
+            width: 200, 
+            borderRight: '1px solid var(--border-subtle)',
+            padding: '16px 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4
+          }}>
+            {[
+              { id: 'general', label: 'General' },
+              { id: 'vaults', label: 'Vaults' },
+              { id: 'appearance', label: 'Appearance' },
+              { id: 'keybinds', label: 'Keybinds' },
+            ].map(tab => (
+              <div 
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as SettingsTab)}
+                style={{
+                  padding: '8px 24px',
+                  cursor: 'pointer',
+                  backgroundColor: activeTab === tab.id ? 'var(--bg-surface)' : 'transparent',
+                  color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-muted)',
+                  borderLeft: `3px solid ${activeTab === tab.id ? 'var(--accent-color, #3b82f6)' : 'transparent'}`,
+                  fontWeight: activeTab === tab.id ? 500 : 400
+                }}
+              >
+                {tab.label}
               </div>
-              <button className="btn btn--secondary" onClick={onChangeVault}>
-                Switch Vault
-              </button>
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
-              Your vault is a local folder where ArtGrid stores all your images and the SQLite database. You can safely sync this folder using Dropbox, Google Drive, or OneDrive.
-            </p>
+            ))}
           </div>
-          
-          <div style={{ marginBottom: 24 }}>
-             <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Theme
-            </h3>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button className="btn btn--secondary">Dark (Default)</button>
-              <button className="btn btn--secondary" disabled style={{ opacity: 0.5 }}>Light (Coming Soon)</button>
-            </div>
+
+          {/* Tab Content */}
+          <div style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
+            
+            {activeTab === 'general' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Startup
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <span style={{ flex: 1 }}>Default View on Launch</span>
+                      <select 
+                        style={{ padding: '6px 12px', borderRadius: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                        value={settings.defaultView}
+                        onChange={(e) => { setSettings({...settings, defaultView: e.target.value}); setHasChanges(true); }}
+                      >
+                        <option value="library">Library</option>
+                        <option value="boards">Mood Boards</option>
+                        <option value="recent">Recent Imports</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    File System
+                  </h3>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={settings.autoWatch} 
+                      onChange={(e) => { setSettings({...settings, autoWatch: e.target.checked}); setHasChanges(true); }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>Auto-watch Vault Folder</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically import new files dropped into the vault's media folder</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'vaults' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Active Vault
+                  </h3>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    padding: '12px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border-subtle)'
+                  }}>
+                    <div style={{ 
+                      fontFamily: 'monospace', 
+                      fontSize: '0.85rem',
+                      color: 'var(--text-primary)',
+                      wordBreak: 'break-all',
+                      paddingRight: 16
+                    }}>
+                      {vaultPath || 'No vault loaded.'}
+                    </div>
+                    <button className="btn btn--secondary" onClick={onChangeVault}>
+                      Switch Vault
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Known Vaults
+                  </h3>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>
+                    Multiple vault tracking will appear here in Phase 5.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'appearance' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Theme
+                  </h3>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <button 
+                      className={`btn ${settings.theme === 'dark' ? 'btn--primary' : 'btn--secondary'}`}
+                      onClick={() => { setSettings({...settings, theme: 'dark'}); setHasChanges(true); }}
+                    >
+                      Dark
+                    </button>
+                    <button 
+                      className={`btn ${settings.theme === 'light' ? 'btn--primary' : 'btn--secondary'}`}
+                      onClick={() => { setSettings({...settings, theme: 'light'}); setHasChanges(true); }}
+                    >
+                      Light
+                    </button>
+                    <button 
+                      className={`btn ${settings.theme === 'system' ? 'btn--primary' : 'btn--secondary'}`}
+                      onClick={() => { setSettings({...settings, theme: 'system'}); setHasChanges(true); }}
+                    >
+                      System
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Layout
+                  </h3>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={settings.compactMode} 
+                      onChange={(e) => { setSettings({...settings, compactMode: e.target.checked}); setHasChanges(true); }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>Compact Mode</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Reduce spacing in the sidebar and gallery for smaller screens</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'keybinds' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Shortcuts
+                </h3>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    { label: 'Import Files', keys: ['Ctrl', 'I'] },
+                    { label: 'Search', keys: ['Ctrl', 'F'] },
+                    { label: 'Toggle Sidebar', keys: ['Ctrl', '\\'] },
+                    { label: 'Toggle Detail Panel', keys: ['Ctrl', ']'] },
+                    { label: 'Preview Selected', keys: ['Space'] },
+                  ].map((kb, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: 6 }}>
+                      <span>{kb.label}</span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {kb.keys.map((k, j) => (
+                          <kbd key={j} style={{ 
+                            background: 'var(--bg-surface)', 
+                            border: '1px solid var(--border-subtle)',
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            fontSize: '0.8rem',
+                            color: 'var(--text-muted)'
+                          }}>{k}</kbd>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
           </div>
-          
+        </div>
+
+        {/* Footer Actions */}
+        <div style={{ 
+          padding: '16px 24px', 
+          borderTop: '1px solid var(--border-subtle)',
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: 12,
+          background: 'rgba(0,0,0,0.1)'
+        }}>
+          <button className="btn btn--secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button 
+            className="btn btn--primary" 
+            onClick={handleSave}
+            disabled={!hasChanges}
+            style={{ opacity: hasChanges ? 1 : 0.5 }}
+          >
+            Save Changes
+          </button>
         </div>
       </div>
     </div>

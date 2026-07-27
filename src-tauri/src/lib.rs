@@ -43,7 +43,8 @@ pub fn run() {
             greet,
             import::open_vault,
             import::get_assets,
-            import::import_file
+            import::import_file,
+            import::toggle_favorite
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
