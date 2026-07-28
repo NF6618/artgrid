@@ -1,5 +1,6 @@
 import React from 'react';
 import { Asset } from '../Gallery';
+import { IconSparkles, IconZoomIn, IconScanText } from '../Icons';
 
 export interface AIToolbarProps {
   asset: Asset;
@@ -56,14 +57,14 @@ export const AIToolbar: React.FC<AIToolbarProps> = ({ asset }) => {
             onClick={(e) => { e.stopPropagation(); handleRunBackgroundRemoval(); }}
             style={{ padding: '4px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: 4 }}
           >
-            ✨ Remove BG
+            <IconSparkles size={13} /> Remove BG
           </button>
           <button 
             className="btn btn--secondary" 
             onClick={(e) => { e.stopPropagation(); handleRunUpscale(); }}
             style={{ padding: '4px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: 4 }}
           >
-            🔍 Upscale
+            <IconZoomIn size={13} /> Upscale
           </button>
         </>
       )}
@@ -73,7 +74,7 @@ export const AIToolbar: React.FC<AIToolbarProps> = ({ asset }) => {
           onClick={(e) => { e.stopPropagation(); handleRunOcr(); }}
           style={{ padding: '4px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: 4 }}
         >
-          📝 Deep OCR
+          <IconScanText size={13} /> Deep OCR
         </button>
       )}
     </div>

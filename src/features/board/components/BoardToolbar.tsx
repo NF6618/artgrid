@@ -67,6 +67,7 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
         userSelect: 'none',
       }}
       onClick={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
     >
       {tools.map(t => (
         <button

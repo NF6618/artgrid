@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import * as pdfjsLib from 'pdfjs-dist';
-import { IconColumns, IconType, IconScissors, IconImage, IconCamera, IconSearch } from '../Icons';
+import {
+  IconColumns, IconScissors, IconImage, IconCamera, IconSearch,
+  IconBookOpen, IconScrollText, IconChevronLeft, IconChevronRight,
+  IconZoomIn, IconZoomOut, IconScanText, IconFileText,
+} from '../Icons';
 import { ViewerProps } from './ViewerTypes';
 import { AIToolbar } from './AIToolbar';
 
 // Set up pdf.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-// Chrome/Adobe Acrobat style PDF page thumbnail preview component
+// ─── Thumbnail Sidebar Page Preview ───────────────────────────────────────────
 const PdfPageThumbnailCanvas: React.FC<{ pdfDoc: any; pageNum: number; isSelected: boolean; onClick: () => void }> = ({
   pdfDoc,
   pageNum,
@@ -66,6 +70,7 @@ const PdfPageThumbnailCanvas: React.FC<{ pdfDoc: any; pageNum: number; isSelecte
   );
 };
 
+// ─── Scroll-Mode Lazy Page Canvas ─────────────────────────────────────────────
 const ScrollPageCanvas: React.FC<{ pdfDoc: any; pageNum: number; scale: number; onVisible?: (pageNum: number) => void }> = ({
   pdfDoc,
   pageNum,
@@ -109,21 +114,136 @@ const ScrollPageCanvas: React.FC<{ pdfDoc: any; pageNum: number; scale: number; 
 
   return (
     <div ref={containerRef} style={{ marginBottom: 32, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <div style={{ fontSize: '11px', color: '#666', textAlign: 'center', marginBottom: 6, fontWeight: 500 }}>
+      <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: 6, fontWeight: 500 }}>
         Page {pageNum}
       </div>
-      <div style={{ boxShadow: '0 8px 30px rgba(0,0,0,0.4)', background: '#ffffff', borderRadius: 6, padding: 8, border: '1px solid #c0c0c0' }}>
+      <div style={{ boxShadow: '0 8px 30px rgba(0,0,0,0.4)', background: '#ffffff', borderRadius: 6, padding: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
         <canvas ref={canvasRef} style={{ display: 'block' }} />
       </div>
     </div>
   );
 };
 
+// ─── Single Flipbook Page Canvas ──────────────────────────────────────────────
+const FlipbookPageCanvas: React.FC<{
+  pdfDoc: any;
+  pageNum: number;
+  fitScale: number;
+  userZoom: number;
+  side: 'left' | 'right' | 'solo';
+  isCropToolActive?: boolean;
+  cropBox?: { startX: number; startY: number; endX: number; endY: number } | null;
+  onMouseDown?: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onMouseMove?: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onMouseUp?: (e: React.MouseEvent) => void;
+  canvasRef?: React.RefObject<HTMLCanvasElement | null>;
+}> = ({
+  pdfDoc,
+  pageNum,
+  fitScale,
+  userZoom,
+  side,
+  isCropToolActive,
+  cropBox,
+  onMouseDown,
+  onMouseMove,
+  onMouseUp,
+  canvasRef: externalCanvasRef,
+}) => {
+  const internalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const activeCanvasRef = externalCanvasRef || internalCanvasRef;
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!pdfDoc || pageNum < 1 || pageNum > pdfDoc.numPages || !activeCanvasRef.current) return;
+
+    const renderPage = async () => {
+      try {
+        const page = await pdfDoc.getPage(pageNum);
+        if (!isMounted || !activeCanvasRef.current) return;
+        const scale = fitScale * userZoom;
+        const viewport = page.getViewport({ scale });
+        const canvas = activeCanvasRef.current;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          await page.render({ canvasContext: ctx, viewport }).promise;
+        }
+      } catch (err) {
+        console.error(`Failed to render page ${pageNum}:`, err);
+      }
+    };
+
+    renderPage();
+    return () => { isMounted = false; };
+  }, [pdfDoc, pageNum, fitScale, userZoom]);
+
+  const borderRadius = side === 'left'
+    ? '8px 0 0 8px'
+    : side === 'right'
+      ? '0 8px 8px 0'
+      : '8px';
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        background: '#ffffff',
+        borderRadius,
+        overflow: 'hidden',
+        cursor: isCropToolActive ? 'crosshair' : 'default',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+    >
+      <canvas ref={activeCanvasRef} style={{ display: 'block', borderRadius }} />
+
+      {/* Crop Marquee Overlay */}
+      {isCropToolActive && cropBox && (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.min(cropBox.startX, cropBox.endX),
+            top: Math.min(cropBox.startY, cropBox.endY),
+            width: Math.abs(cropBox.endX - cropBox.startX),
+            height: Math.abs(cropBox.endY - cropBox.startY),
+            border: '2px dashed var(--accent-primary)',
+            background: 'rgba(124, 107, 240, 0.25)',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      {/* Page number label */}
+      <div style={{
+        position: 'absolute',
+        bottom: 8,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        fontSize: '10px',
+        fontWeight: 500,
+        color: 'rgba(0,0,0,0.35)',
+        userSelect: 'none',
+      }}>
+        {pageNum}
+      </div>
+    </div>
+  );
+};
+
+// ─── Main PDF Viewer ──────────────────────────────────────────────────────────
 export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsUpdated, setViewerControls }) => {
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [pdfPageNum, setPdfPageNum] = useState(1);
   const [pdfTotalPages, setPdfTotalPages] = useState(1);
-  const [pdfScale, setPdfScale] = useState(1.0);
+  const [userZoom, setUserZoom] = useState(1.0);
+  const [fitScale, setFitScale] = useState(1.0);
   const [pdfExtractedText, setPdfExtractedText] = useState<string | null>(null);
   const [showPdfSidebar, setShowPdfSidebar] = useState(true);
   
@@ -132,18 +252,22 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
   const [isSearching, setIsSearching] = useState(false);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
-  // Canvas ref for PDF Book View
-  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
-  const pageCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  // Refs
+  const leftCanvasRef = useRef<HTMLCanvasElement>(null);
+  const rightCanvasRef = useRef<HTMLCanvasElement>(null);
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
 
   // PDF Crop Selection Tool state
   const [isCropToolActive, setIsCropToolActive] = useState(false);
   const [cropBox, setCropBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
   const [isDrawingCrop, setIsDrawingCrop] = useState(false);
+  const [activeCropSide, setActiveCropSide] = useState<'left' | 'right'>('right');
 
-  const [flipDirection, setFlipDirection] = useState<'next' | 'prev' | null>(null);
-  const [isFlipping, setIsFlipping] = useState(false);
+  // Page transition animation
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
+  // ─── PDF Document Loading ─────────────────────────────────────────────────
   useEffect(() => {
     if (!resolvedUrl) return;
     pdfjsLib.getDocument(resolvedUrl).promise.then(pdf => {
@@ -153,91 +277,126 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }).catch(err => console.error("Failed to load PDF", err));
   }, [resolvedUrl]);
 
-  // Pre-render page helper
-  const getRenderedPageCanvas = async (doc: any, pageNum: number, scale: number): Promise<HTMLCanvasElement | null> => {
-    if (!doc || pageNum < 1 || pageNum > doc.numPages) return null;
-    const cacheKey = `${pageNum}_${scale}`;
-    if (pageCacheRef.current.has(cacheKey)) {
-      return pageCacheRef.current.get(cacheKey)!;
-    }
-
-    try {
-      const page = await doc.getPage(pageNum);
-      const viewport = page.getViewport({ scale });
-      const offscreenCanvas = document.createElement('canvas');
-      offscreenCanvas.width = viewport.width;
-      offscreenCanvas.height = viewport.height;
-      const ctx = offscreenCanvas.getContext('2d');
-      if (ctx) {
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        pageCacheRef.current.set(cacheKey, offscreenCanvas);
-        return offscreenCanvas;
-      }
-    } catch (e) {
-      console.error(`Failed to pre-render PDF page ${pageNum}:`, e);
-    }
-    return null;
-  };
-
-  // Render active page instantly onto visible canvas
+  // ─── Dynamic Responsive Sizing via ResizeObserver ─────────────────────────
   useEffect(() => {
-    if (!pdfDoc || !pdfCanvasRef.current) return;
+    if (!contentAreaRef.current) return;
 
-    let isMounted = true;
-    const drawPage = async () => {
-      const cached = await getRenderedPageCanvas(pdfDoc, pdfPageNum, pdfScale);
-      if (!isMounted || !pdfCanvasRef.current || !cached) return;
-
-      const targetCanvas = pdfCanvasRef.current;
-      targetCanvas.width = cached.width;
-      targetCanvas.height = cached.height;
-      const ctx = targetCanvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-        ctx.drawImage(cached, 0, 0);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setContainerSize({ width, height });
+        }
       }
+    });
 
-      // Pre-render adjacent pages in background for instant flipping
-      getRenderedPageCanvas(pdfDoc, pdfPageNum + 1, pdfScale);
-      getRenderedPageCanvas(pdfDoc, pdfPageNum - 1, pdfScale);
+    observer.observe(contentAreaRef.current);
+    return () => observer.disconnect();
+  }, []);
 
-      // Extract text
-      const page = await pdfDoc.getPage(pdfPageNum);
-      const textObj = await page.getTextContent();
-      const text = textObj.items.map((item: any) => item.str).join(' ');
-      if (isMounted) setPdfExtractedText(text);
+  // ─── Compute fitScale based on container & PDF page dimensions ────────────
+  useEffect(() => {
+    if (!pdfDoc || pdfTotalPages < 1) return;
+
+    const computeFitScale = async () => {
+      try {
+        // Use page 1 as reference for dimensions
+        const page = await pdfDoc.getPage(1);
+        const viewport = page.getViewport({ scale: 1.0 });
+        const pageW = viewport.width;
+        const pageH = viewport.height;
+
+        const padding = 80; // total padding around the book
+        const spineGap = 4; // gap between left/right pages
+        const availH = containerSize.height - padding;
+        const availW = containerSize.width - padding;
+
+        let scale: number;
+        if (viewMode === 'flipbook') {
+          // Two-page spread: each page gets half the width
+          const isSpread = pdfTotalPages > 1;
+          const pagesWide = isSpread ? 2 : 1;
+          const scaleByWidth = (availW - spineGap) / (pageW * pagesWide);
+          const scaleByHeight = availH / pageH;
+          scale = Math.min(scaleByWidth, scaleByHeight, 2.5);
+        } else {
+          // Scroll mode: fit width
+          const scaleByWidth = Math.min(availW, 1000) / pageW;
+          scale = Math.min(scaleByWidth, 2.5);
+        }
+
+        setFitScale(Math.max(0.3, scale));
+      } catch (err) {
+        console.error("Failed to compute fit scale:", err);
+      }
     };
 
-    drawPage();
+    computeFitScale();
+  }, [pdfDoc, pdfTotalPages, containerSize, viewMode]);
+
+  // ─── Two-Page Spread Logic ────────────────────────────────────────────────
+  // Page 1 sits alone on the right (like a book cover).
+  // Then: 2-3, 4-5, 6-7, etc.
+  const getSpreadPages = useCallback((currentPage: number): { left: number | null; right: number | null } => {
+    if (pdfTotalPages <= 1) {
+      return { left: null, right: 1 };
+    }
+    if (currentPage === 1) {
+      return { left: null, right: 1 };
+    }
+    // Make currentPage land on an even-odd boundary
+    const evenPage = currentPage % 2 === 0 ? currentPage : currentPage - 1;
+    const left = evenPage;
+    const right = evenPage + 1 <= pdfTotalPages ? evenPage + 1 : null;
+    return { left, right };
+  }, [pdfTotalPages]);
+
+  const spread = getSpreadPages(pdfPageNum);
+
+  // ─── Text Extraction for Current Page ─────────────────────────────────────
+  useEffect(() => {
+    if (!pdfDoc) return;
+    let isMounted = true;
+
+    const extractText = async () => {
+      try {
+        const page = await pdfDoc.getPage(pdfPageNum);
+        const textObj = await page.getTextContent();
+        const text = textObj.items.map((item: any) => item.str).join(' ');
+        if (isMounted) setPdfExtractedText(text);
+      } catch (err) {
+        console.error("Text extraction failed:", err);
+      }
+    };
+
+    extractText();
     return () => { isMounted = false; };
-  }, [pdfDoc, pdfPageNum, pdfScale]);
+  }, [pdfDoc, pdfPageNum]);
 
-  const handlePageTurn = (targetPage: number) => {
-    if (targetPage < 1 || targetPage > pdfTotalPages || targetPage === pdfPageNum || isFlipping) return;
+  // ─── Page Turn ────────────────────────────────────────────────────────────
+  const handlePageTurn = useCallback((targetPage: number) => {
+    if (targetPage < 1 || targetPage > pdfTotalPages || targetPage === pdfPageNum || isTransitioning) return;
     
-    const direction = targetPage > pdfPageNum ? 'next' : 'prev';
-    setFlipDirection(direction);
-    setIsFlipping(true);
-
+    setIsTransitioning(true);
+    // Brief transition delay for visual feedback
     setTimeout(() => {
       setPdfPageNum(targetPage);
-      setTimeout(() => {
-        setIsFlipping(false);
-        setFlipDirection(null);
-      }, 150);
-    }, 150);
-  };
+      setTimeout(() => setIsTransitioning(false), 100);
+    }, 80);
+  }, [pdfPageNum, pdfTotalPages, isTransitioning]);
 
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') handlePageTurn(pdfPageNum + 1);
-      else if (e.key === 'ArrowLeft') handlePageTurn(pdfPageNum - 1);
+      if (viewMode !== 'flipbook') return;
+      if (e.key === 'ArrowRight') handlePageTurn(Math.min(pdfPageNum + 1, pdfTotalPages));
+      else if (e.key === 'ArrowLeft') handlePageTurn(Math.max(pdfPageNum - 1, 1));
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pdfPageNum, pdfTotalPages, isFlipping]);
+  }, [pdfPageNum, pdfTotalPages, isTransitioning, viewMode, handlePageTurn]);
 
-  // High-Fidelity Native PDF Embedded Image Extractor
+  // ─── High-Fidelity Native PDF Embedded Image Extractor ────────────────────
   const handleExtractNativePdfImages = useCallback(async () => {
     if (!pdfDoc) return;
     try {
@@ -313,9 +472,12 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }
   }, [pdfDoc, pdfPageNum, asset?.title, onAssetsUpdated]);
 
+  // ─── Page Snapshot ────────────────────────────────────────────────────────
   const handleSnapshotPdfPage = useCallback(async () => {
-    if (!pdfCanvasRef.current) return;
-    const dataUrl = pdfCanvasRef.current.toDataURL('image/png');
+    // Use the right canvas (active page) or left canvas as fallback
+    const targetCanvas = rightCanvasRef.current || leftCanvasRef.current;
+    if (!targetCanvas) return;
+    const dataUrl = targetCanvas.toDataURL('image/png');
     try {
       await invoke('save_base64_image_asset', {
         title: `${asset?.title} - Page ${pdfPageNum}`,
@@ -328,6 +490,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }
   }, [pdfPageNum, asset?.title, onAssetsUpdated]);
 
+  // ─── Save Extracted Text ──────────────────────────────────────────────────
   const handleSaveExtractedTextAsAsset = useCallback(async () => {
     if (!pdfExtractedText) return;
     try {
@@ -342,7 +505,8 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }
   }, [pdfExtractedText, pdfPageNum, asset?.title, onAssetsUpdated]);
 
-  const handlePdfCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  // ─── Crop Tool Mouse Handlers ─────────────────────────────────────────────
+  const handleCropMouseDown = (side: 'left' | 'right') => (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isCropToolActive) return;
     e.stopPropagation();
     e.preventDefault();
@@ -350,10 +514,11 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     setIsDrawingCrop(true);
+    setActiveCropSide(side);
     setCropBox({ startX: x, startY: y, endX: x, endY: y });
   };
 
-  const handlePdfCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleCropMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isCropToolActive || !isDrawingCrop || !cropBox) return;
     e.stopPropagation();
     e.preventDefault();
@@ -363,19 +528,20 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     setCropBox(prev => prev ? { ...prev, endX, endY } : null);
   };
 
-  const handlePdfCanvasMouseUp = (e: React.MouseEvent) => {
+  const handleCropMouseUp = (e: React.MouseEvent) => {
     if (!isCropToolActive) return;
     e.stopPropagation();
     e.preventDefault();
     setIsDrawingCrop(false);
   };
 
+  // ─── Extract Cropped Region ───────────────────────────────────────────────
   const handleExtractCroppedPdfRegion = async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!pdfCanvasRef.current || !cropBox) return;
+    const sourceCanvas = activeCropSide === 'left' ? leftCanvasRef.current : rightCanvasRef.current;
+    if (!sourceCanvas || !cropBox) return;
 
-    const sourceCanvas = pdfCanvasRef.current;
     const rect = sourceCanvas.getBoundingClientRect();
     const scaleX = sourceCanvas.width / rect.width;
     const scaleY = sourceCanvas.height / rect.height;
@@ -400,8 +566,9 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     const dataUrl = destCanvas.toDataURL('image/png');
 
     try {
+      const cropPage = activeCropSide === 'left' ? spread.left : (spread.right || pdfPageNum);
       await invoke('save_base64_image_asset', {
-        title: `Crop_${asset.title}_P${pdfPageNum}`,
+        title: `Crop_${asset.title}_P${cropPage}`,
         base64Data: dataUrl,
       });
       alert("Cropped PDF section extracted & imported into library as a new asset!");
@@ -413,13 +580,15 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }
   };
 
+  // ─── OCR Extraction ───────────────────────────────────────────────────────
   const handleOcrExtraction = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!pdfCanvasRef.current) return;
+    const sourceCanvas = rightCanvasRef.current || leftCanvasRef.current;
+    if (!sourceCanvas) return;
     
     setIsOcrProcessing(true);
-    let targetCanvas = pdfCanvasRef.current;
+    let targetCanvas: HTMLCanvasElement = sourceCanvas;
     
     if (isCropToolActive && cropBox && Math.abs(cropBox.endX - cropBox.startX) > 10) {
       const rect = targetCanvas.getBoundingClientRect();
@@ -470,6 +639,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }
   }, [pdfPageNum, asset?.title, isCropToolActive, cropBox, onAssetsUpdated]);
 
+  // ─── PDF Text Search ──────────────────────────────────────────────────────
   const handleSearchPdf = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim() || !pdfDoc) return;
@@ -493,8 +663,6 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
       } else {
         if (viewMode === 'flipbook') {
           handlePageTurn(results[0].page);
-        } else {
-           // Scroll mode, jump to page not implemented here but user can scroll
         }
       }
     } catch(err) {
@@ -502,13 +670,14 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     } finally {
       setIsSearching(false);
     }
-  }, [searchQuery, pdfDoc, viewMode]);
+  }, [searchQuery, pdfDoc, viewMode, handlePageTurn]);
 
-  // Provide toolbar controls to parent via setViewerControls
+  // ─── Toolbar Controls ─────────────────────────────────────────────────────
   useEffect(() => {
     if (setViewerControls) {
       setViewerControls(
         <>
+          {/* Sidebar toggle */}
           <button
             className={`toolbar__btn ${showPdfSidebar ? 'toolbar__btn--active' : ''}`}
             onClick={(e) => { e.stopPropagation(); setShowPdfSidebar(s => !s); }}
@@ -517,23 +686,25 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             <IconColumns size={15} />
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '2px', borderRadius: 6 }}>
+          {/* View mode toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--bg-secondary)', padding: '2px', borderRadius: 6 }}>
             <button
               className={`toolbar__btn ${viewMode === 'flipbook' ? 'toolbar__btn--active' : ''}`}
               onClick={(e) => { e.stopPropagation(); setViewMode('flipbook'); }}
               title="Flipbook View"
             >
-              📖
+              <IconBookOpen size={15} />
             </button>
             <button
               className={`toolbar__btn ${viewMode === 'scroll' ? 'toolbar__btn--active' : ''}`}
               onClick={(e) => { e.stopPropagation(); setViewMode('scroll'); }}
               title="Continuous Scroll View"
             >
-              📜
+              <IconScrollText size={15} />
             </button>
           </div>
 
+          {/* Search */}
           <form onSubmit={handleSearchPdf} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 6 }}>
             <input 
               type="text" 
@@ -548,93 +719,108 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             </button>
           </form>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 6 }}>
+          {/* Page navigation */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 6 }}>
             <button 
               className="toolbar__btn" 
               onClick={(e) => { e.stopPropagation(); e.preventDefault(); handlePageTurn(pdfPageNum - 1); }}
               disabled={pdfPageNum <= 1 || viewMode === 'scroll'}
               title="Previous Page"
             >
-              ◀
+              <IconChevronLeft size={15} />
             </button>
-            <span style={{ fontSize: '12px', minWidth: 60, textAlign: 'center' }}>Page {pdfPageNum} / {pdfTotalPages}</span>
+            <span style={{ fontSize: '12px', minWidth: 60, textAlign: 'center', color: 'var(--text-secondary)' }}>
+              {pdfPageNum} / {pdfTotalPages}
+            </span>
             <button 
               className="toolbar__btn" 
               onClick={(e) => { e.stopPropagation(); e.preventDefault(); handlePageTurn(pdfPageNum + 1); }}
               disabled={pdfPageNum >= pdfTotalPages || viewMode === 'scroll'}
               title="Next Page"
             >
-              ▶
+              <IconChevronRight size={15} />
             </button>
           </div>
 
-          <button className="toolbar__btn" title="Zoom Out" onClick={(e) => { e.stopPropagation(); setPdfScale(s => Math.max(0.5, s - 0.2)); }}>-</button>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{Math.round(pdfScale * 100)}%</span>
-          <button className="toolbar__btn" title="Zoom In" onClick={(e) => { e.stopPropagation(); setPdfScale(s => Math.min(3.0, s + 0.2)); }}>+</button>
+          {/* Zoom controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: 6 }}>
+            <button className="toolbar__btn" title="Zoom Out" onClick={(e) => { e.stopPropagation(); setUserZoom(s => Math.max(0.5, +(s - 0.15).toFixed(2))); }}>
+              <IconZoomOut size={14} />
+            </button>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', minWidth: 36, textAlign: 'center' }}>{Math.round(fitScale * userZoom * 100)}%</span>
+            <button className="toolbar__btn" title="Zoom In" onClick={(e) => { e.stopPropagation(); setUserZoom(s => Math.min(3.0, +(s + 0.15).toFixed(2))); }}>
+              <IconZoomIn size={14} />
+            </button>
+          </div>
 
+          {/* Crop tool */}
           <button 
-            className={`btn ${isCropToolActive ? 'btn--primary' : 'btn--secondary'}`} 
+            className={`toolbar__btn ${isCropToolActive ? 'toolbar__btn--active' : ''}`}
             onClick={(e) => { e.stopPropagation(); setIsCropToolActive(!isCropToolActive); setCropBox(null); }}
-            style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 6 }}
             title="Select a region on page to extract as asset"
           >
-            <IconScissors size={14} /> Crop Region
+            <IconScissors size={14} />
           </button>
           
+          {/* Text extract */}
           <button 
-            className="btn btn--secondary" 
+            className="toolbar__btn" 
             onClick={(e) => {
               e.stopPropagation();
               handleSaveExtractedTextAsAsset();
             }}
-            style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 6 }}
             title="Save extracted page text to library as markdown asset"
           >
-            <IconType size={14} /> Extract Text
+            <IconFileText size={14} />
           </button>
 
+          {/* OCR */}
           <button 
-            className="btn btn--secondary" 
+            className="toolbar__btn"
             onClick={handleOcrExtraction}
             disabled={isOcrProcessing}
-            style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 6, opacity: isOcrProcessing ? 0.5 : 1 }}
             title="Run OCR on current page or crop selection"
+            style={{ opacity: isOcrProcessing ? 0.5 : 1 }}
           >
-            <IconSearch size={14} /> {isOcrProcessing ? 'Running OCR...' : 'OCR Scan'}
+            <IconScanText size={14} />
           </button>
 
+          {/* Extract images */}
           <button 
-            className="btn btn--secondary" 
+            className="toolbar__btn"
             onClick={(e) => {
               e.stopPropagation();
               handleExtractNativePdfImages();
             }}
-            style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 6 }}
             title="Extract native embedded images at original source resolution"
           >
-            <IconImage size={14} /> Extract Image
+            <IconImage size={14} />
           </button>
 
+          {/* Snapshot */}
           <button 
-            className="btn btn--primary" 
+            className={`toolbar__btn toolbar__btn--active`}
             onClick={(e) => { e.stopPropagation(); handleSnapshotPdfPage(); }}
-            style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 6 }}
+            title="Snapshot current page as image asset"
           >
-            <IconCamera size={14} /> Snapshot Page
+            <IconCamera size={14} />
           </button>
+
           <AIToolbar asset={asset} resolvedUrl={resolvedUrl} onAssetsUpdated={onAssetsUpdated} />
         </>
       );
     }
   }, [
-    showPdfSidebar, pdfPageNum, pdfTotalPages, pdfScale, isCropToolActive, viewMode, searchQuery, isSearching, isOcrProcessing,
-    handleSaveExtractedTextAsAsset, handleExtractNativePdfImages, handleSnapshotPdfPage, handleSearchPdf, handleOcrExtraction, setViewerControls
+    showPdfSidebar, pdfPageNum, pdfTotalPages, userZoom, fitScale, isCropToolActive, viewMode, searchQuery, isSearching, isOcrProcessing,
+    handleSaveExtractedTextAsAsset, handleExtractNativePdfImages, handleSnapshotPdfPage, handleSearchPdf, handleOcrExtraction, setViewerControls,
+    asset, resolvedUrl, onAssetsUpdated,
   ]);
 
 
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <>
-      {/* PDF Image Preview Thumbnail Sidebar */}
+      {/* PDF Thumbnail Sidebar */}
       {showPdfSidebar && (
         <div style={{
           width: 170,
@@ -655,7 +841,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
               key={pNum}
               pdfDoc={pdfDoc}
               pageNum={pNum}
-              isSelected={pdfPageNum === pNum}
+              isSelected={pdfPageNum === pNum || spread.left === pNum || spread.right === pNum}
               onClick={() => handlePageTurn(pNum)}
             />
           ))}
@@ -663,15 +849,27 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
       )}
 
       {/* Content Preview Area */}
-      <div style={{ flex: 1, display: 'flex', alignItems: viewMode === 'scroll' ? 'flex-start' : 'center', justifyContent: 'center', padding: 24, overflow: 'auto', position: 'relative' }}>
+      <div
+        ref={contentAreaRef}
+        style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: viewMode === 'scroll' ? 'flex-start' : 'center',
+          justifyContent: 'center',
+          padding: 24,
+          overflow: 'auto',
+          position: 'relative',
+        }}
+      >
         {viewMode === 'scroll' ? (
+          /* ─── Scroll Mode ──────────────────────────────────────────────── */
           <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 1000, margin: '0 auto', paddingBottom: 60 }}>
             {Array.from({ length: pdfTotalPages }, (_, i) => i + 1).map(pNum => (
               <ScrollPageCanvas 
                 key={pNum} 
                 pdfDoc={pdfDoc} 
                 pageNum={pNum} 
-                scale={pdfScale} 
+                scale={fitScale * userZoom} 
                 onVisible={(page) => {
                   if (page !== pdfPageNum && !isSearching) setPdfPageNum(page);
                 }}
@@ -679,107 +877,133 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
             ))}
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24, position: 'relative', perspective: 1400 }}>
-          {/* Previous Page Arrow Overlay */}
-          <button
-            onClick={() => handlePageTurn(pdfPageNum - 1)}
-            disabled={pdfPageNum <= 1 || isFlipping}
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: '50%',
-              background: 'rgba(255,255,255,0.12)',
-              color: 'white',
-              border: 'none',
-              fontSize: '22px',
-              cursor: pdfPageNum > 1 ? 'pointer' : 'default',
-              opacity: pdfPageNum > 1 ? 0.9 : 0.2,
-              zIndex: 10,
-              transition: 'all 0.15s ease',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-            }}
-            title="Previous Page (Left Arrow)"
-          >
-            ◀
-          </button>
-
-          {/* Book Paper Sheet with 3D Flip */}
-          <div 
-            style={{ 
-              position: 'relative', 
-              boxShadow: isFlipping ? '0 40px 90px rgba(0,0,0,0.95)' : '0 25px 70px rgba(0,0,0,0.9), 0 0 30px rgba(0,0,0,0.4)', 
-              background: '#ffffff', 
-              borderRadius: 8,
-              padding: 12,
-              border: '1px solid #c0c0c0',
-              cursor: isCropToolActive ? 'crosshair' : 'default',
-              transformOrigin: flipDirection === 'next' ? 'left center' : 'right center',
-              transform: isFlipping 
-                ? (flipDirection === 'next' ? 'rotateY(-180deg) scale(0.92)' : 'rotateY(180deg) scale(0.92)') 
-                : 'rotateY(0deg) scale(1)',
-              transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease',
-              transformStyle: 'preserve-3d',
-              backfaceVisibility: 'hidden',
-            }}
-            onMouseDown={handlePdfCanvasMouseDown}
-            onMouseMove={handlePdfCanvasMouseMove}
-            onMouseUp={handlePdfCanvasMouseUp}
-          >
-            <div style={{ fontSize: '11px', color: '#666', textAlign: 'center', marginBottom: 4, fontWeight: 500 }}>
-              Page {pdfPageNum} of {pdfTotalPages}
-            </div>
-            <canvas ref={pdfCanvasRef} style={{ display: 'block', borderRadius: 4 }} />
-
-            {/* PDF Crop Selection Marquee Box */}
-            {isCropToolActive && cropBox && (
-              <div 
-                style={{
-                  position: 'absolute',
-                  left: Math.min(cropBox.startX, cropBox.endX) + 12,
-                  top: Math.min(cropBox.startY, cropBox.endY) + 12,
-                  width: Math.abs(cropBox.endX - cropBox.startX),
-                  height: Math.abs(cropBox.endY - cropBox.startY),
-                  border: '2px dashed var(--accent-primary)',
-                  background: 'rgba(124, 107, 240, 0.25)',
-                  pointerEvents: 'none'
-                }}
-              />
-            )}
-          </div>
-
-          {/* Next Page Arrow Overlay */}
-          <button
-            onClick={() => handlePageTurn(pdfPageNum + 1)}
-            disabled={pdfPageNum >= pdfTotalPages || isFlipping}
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: '50%',
-              background: 'rgba(255,255,255,0.12)',
-              color: 'white',
-              border: 'none',
-              fontSize: '22px',
-              cursor: pdfPageNum < pdfTotalPages ? 'pointer' : 'default',
-              opacity: pdfPageNum < pdfTotalPages ? 0.9 : 0.2,
-              zIndex: 10,
-              transition: 'all 0.15s ease',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-            }}
-            title="Next Page (Right Arrow)"
-          >
-            ▶
-          </button>
-
-          {isCropToolActive && cropBox && Math.abs(cropBox.endX - cropBox.startX) > 10 && (
-            <button 
-              className="btn btn--primary" 
-              onClick={handleExtractCroppedPdfRegion}
-              style={{ position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)', padding: '8px 16px', fontSize: '13px', zIndex: 9999, display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 8px 30px rgba(0,0,0,0.6)' }}
+          /* ─── Flipbook Mode: Two-Page Spread ───────────────────────────── */
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            width: '100%',
+            justifyContent: 'center',
+          }}>
+            {/* Previous Page Arrow */}
+            <button
+              onClick={() => handlePageTurn(pdfPageNum - 1)}
+              disabled={pdfPageNum <= 1 || isTransitioning}
+              className="toolbar__btn"
+              style={{
+                width: 44,
+                height: 44,
+                minWidth: 44,
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.08)',
+                opacity: pdfPageNum > 1 ? 0.9 : 0.2,
+                flexShrink: 0,
+                transition: 'all 0.15s ease',
+              }}
+              title="Previous Page (Left Arrow)"
             >
-              <IconScissors size={14} /> Extract Cropped Selection as Asset
+              <IconChevronLeft size={20} />
             </button>
-          )}
-        </div>
+
+            {/* Book Spread Container */}
+            <div style={{
+              display: 'flex',
+              boxShadow: '0 25px 70px rgba(0,0,0,0.7), 0 0 30px rgba(0,0,0,0.3)',
+              borderRadius: 8,
+              overflow: 'hidden',
+              transition: 'opacity 0.15s ease, transform 0.15s ease',
+              opacity: isTransitioning ? 0.7 : 1,
+              transform: isTransitioning ? 'scale(0.985)' : 'scale(1)',
+              maxWidth: '100%',
+            }}>
+              {/* Left page */}
+              {spread.left && (
+                <FlipbookPageCanvas
+                  pdfDoc={pdfDoc}
+                  pageNum={spread.left}
+                  fitScale={fitScale}
+                  userZoom={userZoom}
+                  side="left"
+                  isCropToolActive={isCropToolActive}
+                  cropBox={activeCropSide === 'left' ? cropBox : null}
+                  onMouseDown={handleCropMouseDown('left')}
+                  onMouseMove={handleCropMouseMove}
+                  onMouseUp={handleCropMouseUp}
+                  canvasRef={leftCanvasRef}
+                />
+              )}
+
+              {/* Spine divider */}
+              {spread.left && spread.right && (
+                <div style={{
+                  width: 4,
+                  background: 'linear-gradient(to right, #d0d0d0, #e8e8e8, #d0d0d0)',
+                  boxShadow: 'inset 2px 0 4px rgba(0,0,0,0.15), inset -2px 0 4px rgba(0,0,0,0.15)',
+                  flexShrink: 0,
+                }} />
+              )}
+
+              {/* Right page */}
+              {spread.right && (
+                <FlipbookPageCanvas
+                  pdfDoc={pdfDoc}
+                  pageNum={spread.right}
+                  fitScale={fitScale}
+                  userZoom={userZoom}
+                  side={spread.left ? 'right' : 'solo'}
+                  isCropToolActive={isCropToolActive}
+                  cropBox={activeCropSide === 'right' ? cropBox : null}
+                  onMouseDown={handleCropMouseDown('right')}
+                  onMouseMove={handleCropMouseMove}
+                  onMouseUp={handleCropMouseUp}
+                  canvasRef={rightCanvasRef}
+                />
+              )}
+            </div>
+
+            {/* Next Page Arrow */}
+            <button
+              onClick={() => handlePageTurn(pdfPageNum + 1)}
+              disabled={pdfPageNum >= pdfTotalPages || isTransitioning}
+              className="toolbar__btn"
+              style={{
+                width: 44,
+                height: 44,
+                minWidth: 44,
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.08)',
+                opacity: pdfPageNum < pdfTotalPages ? 0.9 : 0.2,
+                flexShrink: 0,
+                transition: 'all 0.15s ease',
+              }}
+              title="Next Page (Right Arrow)"
+            >
+              <IconChevronRight size={20} />
+            </button>
+          </div>
+        )}
+
+        {/* Floating Crop Extract Button */}
+        {isCropToolActive && cropBox && Math.abs(cropBox.endX - cropBox.startX) > 10 && (
+          <button 
+            className="btn btn--primary" 
+            onClick={handleExtractCroppedPdfRegion}
+            style={{
+              position: 'fixed',
+              bottom: 40,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              padding: '8px 16px',
+              fontSize: '13px',
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.6)',
+            }}
+          >
+            <IconScissors size={14} /> Extract Cropped Selection as Asset
+          </button>
         )}
       </div>
     </>

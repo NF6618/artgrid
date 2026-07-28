@@ -82,6 +82,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
         userSelect: 'none',
       }}
       onClick={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
     >
       <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
         {selectedNodes.length} selected

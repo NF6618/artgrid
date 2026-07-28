@@ -1,7 +1,7 @@
 import React, { useState, useEffect, ReactNode } from 'react';
 import { Asset } from './Gallery';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { IconClose, IconInfo } from './Icons';
+import { IconClose, IconInfo, IconChevronLeft, IconChevronRight } from './Icons';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { ImageViewer } from './viewers/ImageViewer';
 import { PdfViewer } from './viewers/PdfViewer';
@@ -165,7 +165,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
                 title="Previous Asset"
                 style={{ width: 24, height: 24, minWidth: 24, opacity: currentAssetIndex > 0 ? 1 : 0.3 }}
               >
-                ◀
+                <IconChevronLeft size={14} />
               </button>
               <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', minWidth: 60, textAlign: 'center' }}>
                 {currentAssetIndex + 1} of {allAssets.length}
@@ -177,7 +177,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
                 title="Next Asset"
                 style={{ width: 24, height: 24, minWidth: 24, opacity: currentAssetIndex < allAssets.length - 1 ? 1 : 0.3 }}
               >
-                ▶
+                <IconChevronRight size={14} />
               </button>
             </div>
           )}
