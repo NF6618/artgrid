@@ -41,6 +41,11 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
   // Inline text editing
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  
+  // Image Cropping
+  const [croppingNodeId, setCroppingNodeId] = useState<string | null>(null);
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [cropDragStart, setCropDragStart] = useState<Point>({ x: 0, y: 0 });
 
   // History Manager
   const historyRef = useRef<HistoryManager>(new HistoryManager());
@@ -141,6 +146,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
   // Pointer Down
   const handlePointerDown = (e: React.PointerEvent) => {
     if (editingNodeId) setEditingNodeId(null);
+    if (croppingNodeId) setCroppingNodeId(null);
 
     // Pan with Middle Mouse or Hand tool
     if (e.button === 1 || activeTool === 'pan') {
@@ -273,7 +279,27 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
       setDragStart({ x: e.clientX, y: e.clientY });
 
       const startMap = new Map();
-      const idsToMove = selectedIds.includes(clickedNode.id) ? selectedIds : [clickedNode.id];
+      let idsToMove = selectedIds.includes(clickedNode.id) ? [...selectedIds] : [clickedNode.id];
+
+      // Section Group Movement: if dragging a section, move its contained nodes as well
+      const sectionsToMove = nodes.filter(n => idsToMove.includes(n.id) && n.type === 'section');
+      if (sectionsToMove.length > 0) {
+        sectionsToMove.forEach(section => {
+          nodes.forEach(n => {
+            if (!idsToMove.includes(n.id) && n.type !== 'section') {
+              const centerX = n.x + n.width / 2;
+              const centerY = n.y + n.height / 2;
+              if (
+                centerX >= section.x && centerX <= section.x + section.width &&
+                centerY >= section.y && centerY <= section.y + section.height
+              ) {
+                idsToMove.push(n.id);
+              }
+            }
+          });
+        });
+      }
+
       nodes.filter(n => idsToMove.includes(n.id)).forEach(n => startMap.set(n.id, { x: n.x, y: n.y }));
       setNodeStartPositions(startMap);
     } else {
@@ -379,17 +405,60 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         let newW = resizeStartNode.width;
         let newH = resizeStartNode.height;
 
-        if (resizingHandle.includes('e')) newW = Math.max(30, resizeStartNode.width + dx);
-        if (resizingHandle.includes('s')) newH = Math.max(30, resizeStartNode.height + dy);
-        if (resizingHandle.includes('w')) {
-          const w = Math.max(30, resizeStartNode.width - dx);
-          newX = resizeStartNode.x + (resizeStartNode.width - w);
-          newW = w;
-        }
-        if (resizingHandle.includes('n')) {
-          const h = Math.max(30, resizeStartNode.height - dy);
-          newY = resizeStartNode.y + (resizeStartNode.height - h);
-          newH = h;
+        if (e.shiftKey && ['nw', 'ne', 'se', 'sw'].includes(resizingHandle)) {
+          const ratio = resizeStartNode.width / resizeStartNode.height;
+          const useDx = Math.abs(dx) > Math.abs(dy);
+          
+          if (resizingHandle === 'se') {
+            if (useDx) {
+              newW = Math.max(30, resizeStartNode.width + dx);
+              newH = newW / ratio;
+            } else {
+              newH = Math.max(30, resizeStartNode.height + dy);
+              newW = newH * ratio;
+            }
+          } else if (resizingHandle === 'nw') {
+            if (useDx) {
+              newW = Math.max(30, resizeStartNode.width - dx);
+              newH = newW / ratio;
+            } else {
+              newH = Math.max(30, resizeStartNode.height - dy);
+              newW = newH * ratio;
+            }
+            newX = resizeStartNode.x + (resizeStartNode.width - newW);
+            newY = resizeStartNode.y + (resizeStartNode.height - newH);
+          } else if (resizingHandle === 'ne') {
+            if (useDx) {
+              newW = Math.max(30, resizeStartNode.width + dx);
+              newH = newW / ratio;
+            } else {
+              newH = Math.max(30, resizeStartNode.height - dy);
+              newW = newH * ratio;
+            }
+            newY = resizeStartNode.y + (resizeStartNode.height - newH);
+          } else if (resizingHandle === 'sw') {
+            if (useDx) {
+              newW = Math.max(30, resizeStartNode.width - dx);
+              newH = newW / ratio;
+            } else {
+              newH = Math.max(30, resizeStartNode.height + dy);
+              newW = newH * ratio;
+            }
+            newX = resizeStartNode.x + (resizeStartNode.width - newW);
+          }
+        } else {
+          if (resizingHandle.includes('e')) newW = Math.max(30, resizeStartNode.width + dx);
+          if (resizingHandle.includes('s')) newH = Math.max(30, resizeStartNode.height + dy);
+          if (resizingHandle.includes('w')) {
+            const w = Math.max(30, resizeStartNode.width - dx);
+            newX = resizeStartNode.x + (resizeStartNode.width - w);
+            newW = w;
+          }
+          if (resizingHandle.includes('n')) {
+            const h = Math.max(30, resizeStartNode.height - dy);
+            newY = resizeStartNode.y + (resizeStartNode.height - h);
+            newH = h;
+          }
         }
 
         if (tldrawSnapToGrid) {
@@ -438,6 +507,21 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         }
         return n;
       }));
+      return;
+    }
+
+    if (isDraggingCrop && croppingNodeId) {
+      const dx = (e.clientX - cropDragStart.x) / viewport.zoom;
+      const dy = (e.clientY - cropDragStart.y) / viewport.zoom;
+      
+      setNodes(prev => prev.map(n => {
+        if (n.id === croppingNodeId && n.type === 'image') {
+          const crop = n.crop || { x: 0, y: 0, width: n.width, height: n.height };
+          return { ...n, crop: { ...crop, x: crop.x + dx, y: crop.y + dy } };
+        }
+        return n;
+      }));
+      setCropDragStart({ x: e.clientX, y: e.clientY });
       return;
     }
 
@@ -537,6 +621,11 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
       setIsDraggingNode(false);
       updateNodes(nodes, true);
     }
+    
+    if (isDraggingCrop) {
+      setIsDraggingCrop(false);
+      updateNodes(nodes, true);
+    }
 
     if (isMarquee) {
       setIsMarquee(false);
@@ -581,6 +670,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         height: h,
         src: assetData.url,
         assetId: assetData.id,
+        crop: { x: 0, y: 0, width: w, height: h },
       };
 
       updateNodes([...nodes, imgNode]);
@@ -776,7 +866,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
                 transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined,
                 boxShadow: isSelected ? '0 0 0 2px var(--accent-primary), 0 10px 30px rgba(0,0,0,0.5)' : '0 4px 16px rgba(0,0,0,0.3)',
                 borderRadius: node.type === 'note' ? 8 : (node.type === 'image' ? 6 : 4),
-                overflow: 'visible',
+                overflow: croppingNodeId === node.id ? 'visible' : 'hidden',
                 border: isSelected ? '2px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.08)',
                 cursor: node.locked ? 'not-allowed' : 'move',
               }}
@@ -785,6 +875,12 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
                 if (node.type === 'note' || node.type === 'text' || node.type === 'section') {
                   setEditingNodeId(node.id);
                   setEditingText((node as any).title || (node as any).text || '');
+                } else if (node.type === 'image' && !node.locked) {
+                  setCroppingNodeId(node.id);
+                  if (!(node as ImageNode).crop) {
+                    const updatedNode = { ...node, crop: { x: 0, y: 0, width: node.width, height: node.height } };
+                    updateNodes(nodes.map(n => n.id === node.id ? updatedNode : n), false);
+                  }
                 }
               }}
             >
@@ -812,11 +908,51 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
 
               {/* IMAGE NODE */}
               {node.type === 'image' && (
-                <img
-                  src={(node as ImageNode).src}
-                  alt="board asset"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none', display: 'block', borderRadius: 6 }}
-                />
+                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                  {croppingNodeId === node.id && (
+                    <img
+                      src={(node as ImageNode).src}
+                      alt="board asset original"
+                      style={{
+                        position: 'absolute',
+                        left: (node as ImageNode).crop?.x || 0,
+                        top: (node as ImageNode).crop?.y || 0,
+                        width: (node as ImageNode).crop?.width || node.width,
+                        height: (node as ImageNode).crop?.height || node.height,
+                        opacity: 0.3,
+                        pointerEvents: 'none',
+                        display: 'block',
+                        zIndex: -1,
+                      }}
+                    />
+                  )}
+                  <img
+                    src={(node as ImageNode).src}
+                    alt="board asset"
+                    onPointerDown={(e) => {
+                      if (croppingNodeId === node.id) {
+                        e.stopPropagation();
+                        setIsDraggingCrop(true);
+                        setCropDragStart({ x: e.clientX, y: e.clientY });
+                      }
+                    }}
+                    style={{
+                      position: 'absolute',
+                      left: (node as ImageNode).crop?.x || 0,
+                      top: (node as ImageNode).crop?.y || 0,
+                      width: (node as ImageNode).crop?.width || node.width,
+                      height: (node as ImageNode).crop?.height || node.height,
+                      objectFit: 'fill',
+                      pointerEvents: croppingNodeId === node.id ? 'auto' : 'none',
+                      cursor: croppingNodeId === node.id ? 'move' : 'default',
+                      display: 'block',
+                      borderRadius: croppingNodeId === node.id ? 0 : 6,
+                    }}
+                  />
+                  {croppingNodeId === node.id && (
+                    <div style={{ position: 'absolute', inset: 0, border: '2px dashed var(--accent-primary)', pointerEvents: 'none', zIndex: 10 }} />
+                  )}
+                </div>
               )}
 
               {/* STICKY NOTE NODE */}

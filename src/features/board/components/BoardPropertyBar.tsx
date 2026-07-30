@@ -23,6 +23,32 @@ interface BoardPropertyBarProps {
   onToggleLock: () => void;
 }
 
+const ColorPicker: React.FC<{ value: string; onChange: (v: string) => void; title: string }> = ({ value, onChange, title }) => (
+  <div 
+    title={title}
+    style={{ 
+      position: 'relative', 
+      width: 24, 
+      height: 24, 
+      borderRadius: '50%', 
+      overflow: 'hidden',
+      border: '1px solid rgba(255,255,255,0.2)',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+      cursor: 'pointer'
+    }}
+  >
+    <div style={{ position: 'absolute', inset: 0, background: value }} />
+    <input 
+      type="color" 
+      value={value} 
+      onChange={e => onChange(e.target.value)}
+      style={{ opacity: 0, position: 'absolute', inset: -10, width: 50, height: 50, cursor: 'pointer' }}
+    />
+  </div>
+);
+
+const Divider = () => <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />;
+
 export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
   selectedNodes,
   onDelete,
@@ -43,6 +69,8 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
   onChangeNodeSize,
   onToggleLock,
 }) => {
+  const [isRatioLocked, setIsRatioLocked] = React.useState(true);
+
   if (selectedNodes.length === 0) return null;
 
   const firstNode = selectedNodes[0];
@@ -56,7 +84,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
   const isImage = isSingle && firstNode.type === 'image';
   const isLocked = selectedNodes.some(n => n.locked);
 
-  const colors: { name: NoteColor; hex: string }[] = [
+  const noteColors: { name: NoteColor; hex: string }[] = [
     { name: 'yellow', hex: '#fef08a' },
     { name: 'blue', hex: '#bae6fd' },
     { name: 'green', hex: '#bbf7d0' },
@@ -69,51 +97,58 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
     <div
       style={{
         position: 'absolute',
-        top: 60,
+        top: 80,
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        background: 'var(--bg-secondary)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: 10,
-        padding: '6px 14px',
-        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
+        gap: 12,
+        background: 'rgba(20, 20, 25, 0.75)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: 14,
+        padding: '8px 16px',
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
         zIndex: 100,
-        backdropFilter: 'blur(12px)',
+        backdropFilter: 'blur(32px) saturate(150%)',
+        WebkitBackdropFilter: 'blur(32px) saturate(150%)',
         userSelect: 'none',
       }}
       onClick={e => e.stopPropagation()}
       onPointerDown={e => e.stopPropagation()}
     >
-      <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
-        {selectedNodes.length} selected
+      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        {selectedNodes.length} {selectedNodes.length === 1 ? 'item' : 'items'}
       </span>
 
-      <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+      <Divider />
 
       {/* Sticky Note Color Palette */}
       {isNote && onChangeColor && (
         <>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            {colors.map(c => (
-              <div
-                key={c.name}
-                onClick={() => onChangeColor(c.name)}
-                title={`Note color: ${c.name}`}
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: '50%',
-                  background: c.hex,
-                  border: '1px solid rgba(0,0,0,0.2)',
-                  cursor: 'pointer',
-                }}
-              />
-            ))}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {noteColors.map(c => {
+              const active = (firstNode as any).color === c.name;
+              return (
+                <div
+                  key={c.name}
+                  onClick={() => onChangeColor(c.name)}
+                  title={`Note color: ${c.name}`}
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: c.hex,
+                    border: active ? '2px solid #fff' : '1px solid rgba(0,0,0,0.2)',
+                    cursor: 'pointer',
+                    boxShadow: active ? '0 0 0 2px rgba(255,255,255,0.2)' : '0 2px 4px rgba(0,0,0,0.2)',
+                    transform: active ? 'scale(1.1)' : 'scale(1)',
+                    transition: 'all 0.2s ease'
+                  }}
+                />
+              );
+            })}
           </div>
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+          <Divider />
         </>
       )}
 
@@ -121,82 +156,115 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
       {isImage && (firstNode as ImageNode).assetId && (
         <>
           <button
-            className="toolbar__btn"
-            title="Open Studio Tools"
             onClick={(e) => {
               e.stopPropagation();
               const assetId = (firstNode as ImageNode).assetId;
               if (assetId && (window as any).__artgridOpenPreviewAsset) {
-                // The actual Asset object is needed, but __artgridOpenPreviewAsset only strictly needs the ID and url,
-                // however, for safety we should ideally pass a full asset.
-                // We'll pass a mock asset with the ID and it will fallback to fetching if needed,
-                // OR we can rely on the fact that App.tsx `handleOpenPreviewAsset` takes an `Asset`.
-                // We'll pass a mock asset with the ID and it will fallback to fetching if needed.
                 const mockAsset = { id: assetId, title: 'Image.png', type: 'image/png', url: (firstNode as ImageNode).src } as any;
                 (window as any).__artgridOpenPreviewAsset(mockAsset);
               }
             }}
-            style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--accent-primary)' }}
+            style={{ 
+              padding: '6px 12px', 
+              fontSize: '12px', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 6, 
+              fontWeight: 600, 
+              color: 'var(--accent-primary)',
+              background: 'rgba(124, 107, 240, 0.1)',
+              border: '1px solid rgba(124, 107, 240, 0.2)',
+              borderRadius: 8,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(124, 107, 240, 0.2)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(124, 107, 240, 0.1)'}
           >
-            <IconPencil size={12} /> Studio Tools
+            <IconPencil size={14} /> Studio Tools
           </button>
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+          <Divider />
         </>
       )}
 
-      {/* Resize Inputs (For supported nodes) */}
+      {/* Resize Inputs */}
       {isSingle && !isLocked && onChangeNodeSize && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11px', color: 'var(--text-secondary)' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 600 }}>
             W
             <input
               type="number"
               value={Math.round(firstNode.width)}
-              onChange={e => onChangeNodeSize(Number(e.target.value) || firstNode.width, firstNode.height)}
-              style={{
-                width: 48,
-                padding: '2px 4px',
-                borderRadius: 4,
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-primary)',
-                fontSize: '11px',
+              onChange={e => {
+                const newW = Number(e.target.value) || firstNode.width;
+                if (isRatioLocked) {
+                  const ratio = firstNode.height / firstNode.width;
+                  onChangeNodeSize(newW, newW * ratio);
+                } else {
+                  onChangeNodeSize(newW, firstNode.height);
+                }
               }}
-            />
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            H
-            <input
-              type="number"
-              value={Math.round(firstNode.height)}
-              onChange={e => onChangeNodeSize(firstNode.width, Number(e.target.value) || firstNode.height)}
               style={{
                 width: 48,
-                padding: '2px 4px',
-                borderRadius: 4,
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-primary)',
-                fontSize: '11px',
+                padding: '4px 6px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: '12px',
+                outline: 'none',
+                fontVariantNumeric: 'tabular-nums'
               }}
             />
           </label>
           <button
-            className="toolbar__btn"
-            onClick={() => {
-              const size = Math.max(firstNode.width, firstNode.height);
-              onChangeNodeSize(size, size);
+            onClick={() => setIsRatioLocked(!isRatioLocked)}
+            title={isRatioLocked ? "Unlock Aspect Ratio" : "Lock Aspect Ratio"}
+            style={{
+              padding: '4px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: isRatioLocked ? '#fff' : 'rgba(255,255,255,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'color 0.2s'
             }}
-            title="Square (1:1)"
-            style={{ padding: '2px 6px', fontSize: '10px', background: 'var(--bg-tertiary)' }}
           >
-            1:1
+            {isRatioLocked ? <IconLock size={12} /> : <IconUnlock size={12} />}
           </button>
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)', marginLeft: 4 }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 600 }}>
+            H
+            <input
+              type="number"
+              value={Math.round(firstNode.height)}
+              onChange={e => {
+                const newH = Number(e.target.value) || firstNode.height;
+                if (isRatioLocked) {
+                  const ratio = firstNode.width / firstNode.height;
+                  onChangeNodeSize(newH * ratio, newH);
+                } else {
+                  onChangeNodeSize(firstNode.width, newH);
+                }
+              }}
+              style={{
+                width: 48,
+                padding: '4px 6px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: '12px',
+                outline: 'none',
+                fontVariantNumeric: 'tabular-nums'
+              }}
+            />
+          </label>
+          <Divider />
         </div>
       )}
 
-      {/* Text Box Font Family & Size Selector */}
+      {/* Text Box Props */}
       {isText && (
         <>
           {onChangeFontFamily && (
@@ -204,12 +272,14 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
               value={(firstNode as TextNode).fontFamily || 'Inter'}
               onChange={e => onChangeFontFamily(e.target.value)}
               style={{
-                padding: '3px 8px',
-                borderRadius: 4,
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-primary)',
-                fontSize: '11px',
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: '12px',
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
               <option value="Inter">Inter</option>
@@ -226,40 +296,30 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
               value={(firstNode as TextNode).fontSize || 18}
               onChange={e => onChangeFontSize(Number(e.target.value))}
               style={{
-                padding: '3px 8px',
-                borderRadius: 4,
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-primary)',
-                fontSize: '11px',
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: '12px',
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
-              <option value={12}>12px</option>
-              <option value={14}>14px</option>
-              <option value={18}>18px</option>
-              <option value={24}>24px</option>
-              <option value={32}>32px</option>
-              <option value={48}>48px</option>
-              <option value={64}>64px</option>
-              <option value={72}>72px</option>
+              {[12, 14, 18, 24, 32, 48, 64, 72].map(size => (
+                <option key={size} value={size}>{size}px</option>
+              ))}
             </select>
           )}
 
           {onChangeTextColor && (
-            <input 
-              type="color" 
-              value={(firstNode as TextNode).color || '#e8e8f0'} 
-              onChange={e => onChangeTextColor(e.target.value)}
-              title="Text Color"
-              style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-            />
+            <ColorPicker value={(firstNode as TextNode).color || '#e8e8f0'} onChange={onChangeTextColor} title="Text Color" />
           )}
-
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+          <Divider />
         </>
       )}
 
-      {/* Shape Node Properties */}
+      {/* Shape Properties */}
       {isShape && (
         <>
           {onChangeShapeType && (
@@ -267,12 +327,14 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
               value={(firstNode as ShapeNode).shapeType || 'rectangle'}
               onChange={e => onChangeShapeType(e.target.value as 'rectangle' | 'ellipse')}
               style={{
-                padding: '3px 8px',
-                borderRadius: 4,
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-primary)',
-                fontSize: '11px',
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: '12px',
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
               <option value="rectangle">Rectangle</option>
@@ -280,142 +342,100 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
             </select>
           )}
           {onChangeShapeFill && (
-            <input
-              type="color"
-              value={(firstNode as ShapeNode).fillColor || '#7c6bf0'}
-              onChange={e => onChangeShapeFill(e.target.value)}
-              title="Fill Color"
-              style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-            />
+            <ColorPicker value={(firstNode as ShapeNode).fillColor || '#7c6bf0'} onChange={onChangeShapeFill} title="Fill Color" />
           )}
           {onChangeShapeStroke && (
-            <input
-              type="color"
-              value={(firstNode as ShapeNode).strokeColor || '#7c6bf0'}
-              onChange={e => onChangeShapeStroke(e.target.value)}
-              title="Stroke Color"
-              style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-            />
+            <ColorPicker value={(firstNode as ShapeNode).strokeColor || '#7c6bf0'} onChange={onChangeShapeStroke} title="Stroke Color" />
           )}
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+          <Divider />
         </>
       )}
 
-      {/* Pen Node Properties */}
-      {isPen && (
+      {/* Pen/Arrow Properties */}
+      {(isPen || isArrow) && (
         <>
-          {onChangePenColor && (
-            <input
-              type="color"
-              value={(firstNode as PenNode).color || '#7c6bf0'}
-              onChange={e => onChangePenColor(e.target.value)}
-              title="Stroke Color"
-              style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-            />
-          )}
-          {onChangePenWidth && (
+          {isPen && onChangePenColor && <ColorPicker value={(firstNode as PenNode).color || '#7c6bf0'} onChange={onChangePenColor} title="Stroke Color" />}
+          {isArrow && onChangeArrowColor && <ColorPicker value={(firstNode as ArrowNode).color || '#7c6bf0'} onChange={onChangeArrowColor} title="Arrow Color" />}
+          
+          {isPen && onChangePenWidth && (
             <select
               value={(firstNode as PenNode).strokeWidth || 4}
               onChange={e => onChangePenWidth(Number(e.target.value))}
               style={{
-                padding: '3px 8px',
-                borderRadius: 4,
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-primary)',
-                fontSize: '11px',
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: '12px',
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
-              <option value={2}>Thin (2px)</option>
-              <option value={4}>Medium (4px)</option>
-              <option value={8}>Thick (8px)</option>
-              <option value={14}>Bold (14px)</option>
+              <option value={2}>Thin</option>
+              <option value={4}>Medium</option>
+              <option value={8}>Thick</option>
+              <option value={14}>Bold</option>
             </select>
           )}
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+          <Divider />
         </>
       )}
 
-      {/* Arrow Node Properties */}
-      {isArrow && (
-        <>
-          {onChangeArrowColor && (
-            <input
-              type="color"
-              value={(firstNode as ArrowNode).color || '#7c6bf0'}
-              onChange={e => onChangeArrowColor(e.target.value)}
-              title="Arrow Color"
-              style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-            />
-          )}
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
-        </>
-      )}
-
-      {/* Section Node Properties */}
+      {/* Section Properties */}
       {isSection && (
         <>
-          {onChangeSectionColor && (
-            <input
-              type="color"
-              value={(firstNode as SectionNode).color || '#7c6bf0'}
-              onChange={e => onChangeSectionColor(e.target.value)}
-              title="Section Header Color"
-              style={{ width: 22, height: 22, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-            />
-          )}
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+          {onChangeSectionColor && <ColorPicker value={(firstNode as SectionNode).color || '#7c6bf0'} onChange={onChangeSectionColor} title="Header Color" />}
+          <Divider />
         </>
       )}
 
-      <button
-        className="btn btn--secondary"
-        onClick={onBringToFront}
-        title="Bring to Front"
-        style={{ padding: '4px 8px', fontSize: '11px' }}
-      >
-        Front
-      </button>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          onClick={onBringToFront}
+          title="Bring to Front"
+          style={{ padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: 6, cursor: 'pointer' }}
+        >
+          Front
+        </button>
+
+        <button
+          onClick={onSendToBack}
+          title="Send to Back"
+          style={{ padding: '4px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: 6, cursor: 'pointer' }}
+        >
+          Back
+        </button>
+      </div>
+
+      <Divider />
 
       <button
-        className="btn btn--secondary"
-        onClick={onSendToBack}
-        title="Send to Back"
-        style={{ padding: '4px 8px', fontSize: '11px' }}
-      >
-        Back
-      </button>
-
-      <button
-        className="btn btn--secondary"
         onClick={onDuplicate}
-        title="Duplicate Element (Ctrl+D)"
-        style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: 4 }}
+        title="Duplicate (Ctrl+D)"
+        style={{ padding: '6px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
       >
-        <IconCopy size={13} /> Duplicate
+        <IconCopy size={16} />
       </button>
 
       <button
-        className="btn btn--secondary"
         onClick={onToggleLock}
         title={isLocked ? "Unlock Element" : "Lock Element"}
-        style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: 4 }}
+        style={{ padding: '6px', background: 'transparent', border: 'none', color: isLocked ? 'var(--accent-primary)' : 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
       >
-        {isLocked ? <IconUnlock size={13} /> : <IconLock size={13} />}
-        {isLocked ? 'Unlock' : 'Lock'}
+        {isLocked ? <IconLock size={16} /> : <IconUnlock size={16} />}
       </button>
 
       <button
-        className="btn btn--secondary"
         onClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
           onDelete();
         }}
-        title="Delete Selection (Delete / Backspace)"
-        style={{ padding: '4px 8px', fontSize: '11px', color: '#f06b8e', borderColor: 'rgba(240, 107, 142, 0.3)', display: 'flex', alignItems: 'center', gap: 4 }}
+        title="Delete (Backspace)"
+        style={{ padding: '6px', background: 'transparent', border: 'none', color: '#f06b8e', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
       >
-        <IconTrash size={13} /> Delete
+        <IconTrash size={16} />
       </button>
     </div>
   );

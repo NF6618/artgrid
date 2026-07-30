@@ -26,6 +26,7 @@ import { TabBar } from './components/TabBar';
 import { useTabStore, TabType } from './stores/useTabStore';
 import { useAssetFilter } from './hooks/useAssetFilter';
 import { StandaloneLayout } from './components/layouts/StandaloneLayout';
+import { MoodboardView } from './features/board/components/MoodboardView';
 
 type ViewMode = 'grid' | 'list' | 'board';
 
@@ -471,203 +472,23 @@ const App: React.FC = () => {
               />
             ) : activeView === 'boards' ? (
               currentBoardId ? (
-                <div className="board-layout">
-                  {/* Left: Media Drawer */}
-                  <div
-                    className="media-drawer"
-                    style={{ width: isMediaDrawerCollapsed ? 48 : 300 }}
-                  >
-                    {/* Header */}
-                    <div className="media-drawer__header" style={{ padding: '8px 12px' }}>
-                      {!isMediaDrawerCollapsed && (
-                        <div style={{ display: 'flex', gap: 8, flex: 1 }}>
-                          <button 
-                            className={`btn ${mediaDrawerTab === 'library' ? 'btn--primary' : 'btn--ghost'}`}
-                            onClick={() => setMediaDrawerTab('library')}
-                            style={{ padding: '4px 10px', fontSize: '11px', flex: 1 }}
-                          >
-                            Library
-                          </button>
-                          <button 
-                            className={`btn ${mediaDrawerTab === 'layers' ? 'btn--primary' : 'btn--ghost'}`}
-                            onClick={() => setMediaDrawerTab('layers')}
-                            style={{ padding: '4px 10px', fontSize: '11px', flex: 1 }}
-                          >
-                            Layers
-                          </button>
-                        </div>
-                      )}
-                      <button
-                        className="toolbar__btn"
-                        onClick={() => setIsMediaDrawerCollapsed(v => !v)}
-                        title={isMediaDrawerCollapsed ? 'Expand Media Sidebar' : 'Collapse Media Sidebar'}
-                        style={{ padding: '4px 8px', margin: isMediaDrawerCollapsed ? '0 auto' : '0' }}
-                      >
-                        {isMediaDrawerCollapsed ? '▶' : '◀'}
-                      </button>
-                    </div>
-
-                    {!isMediaDrawerCollapsed && mediaDrawerTab === 'library' && (
-                      <>
-                        {/* Filter / Sort */}
-                        <div className="media-drawer__filters">
-                          <input
-                            placeholder="Search assets..."
-                            value={boardSearchQuery}
-                            onChange={e => setBoardSearchQuery(e.target.value)}
-                            className="media-drawer__search"
-                          />
-                          <div className="media-drawer__filter-row">
-                            <select
-                              value={boardCategoryFilter}
-                              onChange={e => setBoardCategoryFilter(e.target.value)}
-                              className="media-drawer__select"
-                            >
-                              <option value="all">All Collections</option>
-                              {collections.map((c: any) => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                              ))}
-                            </select>
-                            <select
-                              value={boardSortBy}
-                              onChange={e => setBoardSortBy(e.target.value)}
-                              className="media-drawer__select"
-                            >
-                              <option value="date">Date Modified</option>
-                              <option value="title">Name A–Z</option>
-                              <option value="size">File Size</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Count */}
-                        <div className="media-drawer__count">
-                          {boardFilteredAssets.length} asset{boardFilteredAssets.length !== 1 ? 's' : ''}
-                        </div>
-
-                        {/* Asset grid */}
-                        <div className="media-drawer__grid">
-                          {boardFilteredAssets.map(asset => (
-                            <div
-                              key={asset.id}
-                              draggable
-                              onDragStart={e => {
-                                const dataObj = { id: asset.id, url: asset.url, title: asset.title, width: asset.width, height: asset.height };
-                                (window as any).__artgridDragAsset = dataObj;
-                                e.dataTransfer.setData('application/json', JSON.stringify(dataObj));
-                                e.dataTransfer.setData('text/plain', asset.url);
-                                e.dataTransfer.effectAllowed = 'copy';
-                              }}
-                              onDragEnd={() => { (window as any).__artgridDragAsset = null; }}
-                              className="media-drawer__asset"
-                              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'; }}
-                              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = ''; }}
-                              title={`${asset.title} — drag onto board`}
-                            >
-                              <img src={asset.url} alt={asset.title} className="media-drawer__asset-image" draggable={false} />
-                              <div className="media-drawer__asset-title">
-                                {asset.title}
-                              </div>
-                            </div>
-                          ))}
-                          {boardFilteredAssets.length === 0 && (
-                            <div className="media-drawer__empty">
-                              No assets match your filters.
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
-
-                    {!isMediaDrawerCollapsed && mediaDrawerTab === 'layers' && (() => {
-                      const activeBoardNodes = boards.find(b => b.id === currentBoardId)?.nodes || [];
-                      return (
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', fontWeight: 600 }}>
-                            Active Nodes ({activeBoardNodes.length})
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {activeBoardNodes.map((node: any) => (
-                              <div key={node.id} style={{ 
-                                padding: '8px 12px', 
-                                background: 'var(--bg-tertiary)', 
-                                borderRadius: '6px', 
-                                fontSize: '12px', 
-                                display: 'flex', 
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                border: '1px solid var(--border-subtle)'
-                              }}>
-                                <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
-                                  {node.type.charAt(0).toUpperCase() + node.type.slice(1)} {node.title ? `- ${node.title}` : node.text ? `- ${node.text.slice(0, 15)}...` : ''}
-                                </span>
-                                {node.type === 'image' && node.assetId && (
-                                  <button 
-                                    className="btn btn--secondary" 
-                                    style={{ padding: '2px 8px', fontSize: '10px' }} 
-                                    onClick={() => {
-                                      const ast = assets.find(a => a.id === node.assetId) || standaloneAllAssets.find(a => a.id === node.assetId);
-                                      if (ast && (window as any).__artgridOpenPreviewAsset) {
-                                        (window as any).__artgridOpenPreviewAsset(ast, node.id);
-                                      }
-                                    }}
-                                  >
-                                    <IconPencil size={10} /> Studio Tools
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                            {activeBoardNodes.length === 0 && (
-                              <div className="media-drawer__empty" style={{ marginTop: 24 }}>
-                                No layers on this board.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Canvas Area */}
-                  <div className="board-workspace">
-                    {/* Canvas Header & Board Tabs */}
-                    <div className="board-workspace__header">
-                      <button 
-                        className="btn btn--secondary" 
-                        onClick={() => {
-                          setActiveBoard('');
-                          updateTabContext(activeTabId, { boardId: null });
-                        }}
-                        style={{ padding: '4px 10px', fontSize: '12px' }}
-                      >
-                        ← Back to All Boards
-                      </button>
-
-                      <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
-
-                      <div className="board-workspace__tabs">
-                        {boards.map(b => (
-                          <button
-                            key={b.id}
-                            className={`btn ${b.id === currentBoardId ? 'btn--primary' : 'btn--ghost'}`}
-                            onClick={() => {
-                              setActiveBoard(b.id);
-                              updateTabContext(activeTabId, { boardId: b.id });
-                            }}
-                            style={{ padding: '4px 10px', fontSize: '12px', fontWeight: b.id === currentBoardId ? 600 : 400 }}
-                          >
-                            {b.title}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Board Canvas Area */}
-                    <div className="board-workspace__canvas">
-                      <BoardCanvas />
-                    </div>
-                  </div>
-                </div>
+                <MoodboardView
+                  boards={boards}
+                  currentBoardId={currentBoardId}
+                  activeTabId={activeTabId}
+                  updateTabContext={updateTabContext}
+                  setActiveBoard={setActiveBoard}
+                  boardFilteredAssets={boardFilteredAssets}
+                  collections={collections}
+                  boardSearchQuery={boardSearchQuery}
+                  setBoardSearchQuery={setBoardSearchQuery}
+                  boardCategoryFilter={boardCategoryFilter}
+                  setBoardCategoryFilter={setBoardCategoryFilter}
+                  boardSortBy={boardSortBy}
+                  setBoardSortBy={setBoardSortBy}
+                  standaloneAllAssets={standaloneAllAssets}
+                  assets={assets}
+                />
               ) : (
                 <BoardsGallery
                   boards={boards}
