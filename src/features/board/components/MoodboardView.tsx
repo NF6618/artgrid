@@ -1,6 +1,7 @@
 import React from 'react';
 import { BoardMediaDrawer } from './BoardMediaDrawer';
 import { BoardCanvas } from './BoardCanvas';
+import { Panel } from '../../../components/ui/Panel';
 
 interface MoodboardViewProps {
   boards: any[];
@@ -37,6 +38,8 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
   standaloneAllAssets,
   assets,
 }) => {
+  const [isMediaDrawerCollapsed, setIsMediaDrawerCollapsed] = React.useState(false);
+
   return (
     <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden', background: 'var(--bg-base)' }}>
       {/* Absolute floating media drawer */}
@@ -54,29 +57,26 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
           setBoardSortBy={setBoardSortBy}
           standaloneAllAssets={standaloneAllAssets}
           assets={assets}
+          isCollapsed={isMediaDrawerCollapsed}
+          setIsCollapsed={setIsMediaDrawerCollapsed}
         />
       )}
 
       {/* Main Canvas Area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         {/* Canvas Header & Board Tabs (Floating at the top, frosted glass) */}
-        <div 
+        <Panel 
           style={{ 
             position: 'absolute', 
             top: 20, 
-            left: 20, 
+            left: isMediaDrawerCollapsed ? 20 : 320,
             right: 20,
             height: 48, 
             display: 'flex', 
             alignItems: 'center', 
             gap: 16, 
             padding: '0 16px',
-            background: 'rgba(20, 20, 25, 0.75)',
-            backdropFilter: 'blur(24px) saturate(150%)',
-            WebkitBackdropFilter: 'blur(24px) saturate(150%)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
             borderRadius: 12,
-            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.3)',
             zIndex: 800,
             pointerEvents: 'auto',
           }}
@@ -136,7 +136,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
               </button>
             ))}
           </div>
-        </div>
+        </Panel>
 
         {/* The Board Canvas */}
         <div style={{ flex: 1, position: 'relative' }}>

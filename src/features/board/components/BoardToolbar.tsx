@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ToolType } from '../engine/types';
+import { useCanvasStore } from '../stores/useCanvasStore';
 import { 
   IconCursor, 
   IconHand, 
@@ -13,17 +14,8 @@ import {
   IconRotateCcw, 
   IconRotateCw 
 } from '../../../components/Icons';
-
-interface BoardToolbarProps {
-  activeTool: ToolType;
-  onSelectTool: (tool: ToolType) => void;
-  canUndo: boolean;
-  canRedo: boolean;
-  onUndo: () => void;
-  onRedo: () => void;
-  onResetZoom: () => void;
-  zoomLevel: number;
-}
+import { Panel } from '../../../components/ui/Panel';
+import { IconButton } from '../../../components/ui/IconButton';
 
 const ToolButton: React.FC<{
   tool: any;
@@ -83,16 +75,11 @@ const ToolButton: React.FC<{
   );
 };
 
-export const BoardToolbar: React.FC<BoardToolbarProps> = ({
-  activeTool,
-  onSelectTool,
-  canUndo,
-  canRedo,
-  onUndo,
-  onRedo,
-  onResetZoom,
-  zoomLevel,
-}) => {
+export const BoardToolbar: React.FC = () => {
+  const { activeTool, setActiveTool, canUndo, canRedo, undo, redo, viewport, setViewport } = useCanvasStore();
+
+  const handleResetZoom = () => setViewport({ ...viewport, zoom: 1.0 });
+
   const tools = [
     { type: 'select', label: 'Select', icon: <IconCursor size={18} />, shortcut: 'V' },
     { type: 'pan', label: 'Hand / Pan', icon: <IconHand size={18} />, shortcut: 'H' },
@@ -106,7 +93,7 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
   ];
 
   return (
-    <div 
+    <Panel
       style={{
         position: 'absolute',
         bottom: 32,
@@ -115,14 +102,9 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        background: 'rgba(20, 20, 25, 0.75)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
         borderRadius: 32,
         padding: '8px 16px',
-        boxShadow: '0 24px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.05) inset',
         zIndex: 100,
-        backdropFilter: 'blur(32px) saturate(150%)',
-        WebkitBackdropFilter: 'blur(32px) saturate(150%)',
         userSelect: 'none',
       }}
       onClick={e => e.stopPropagation()}
@@ -133,64 +115,47 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
           key={t.type}
           tool={t}
           isActive={activeTool === t.type}
-          onClick={() => onSelectTool(t.type as ToolType)}
+          onClick={() => setActiveTool(t.type as ToolType)}
         />
       ))}
 
       <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 8px' }} />
 
       <div style={{ display: 'flex', gap: 4 }}>
-        <button
-          onClick={onUndo}
+        <IconButton
+          icon={<IconRotateCcw size={16} />}
+          onClick={undo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
+          size={36}
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            border: 'none',
             background: 'transparent',
+            border: 'none',
+            boxShadow: 'none',
             color: canUndo ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.2)',
             cursor: canUndo ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s ease',
           }}
-          onMouseEnter={e => { if (canUndo) e.currentTarget.style.background = 'rgba(255,255,255,0.1)' }}
-          onMouseLeave={e => { if (canUndo) e.currentTarget.style.background = 'transparent' }}
-        >
-          <IconRotateCcw size={16} />
-        </button>
-
-        <button
-          onClick={onRedo}
+        />
+        <IconButton
+          icon={<IconRotateCw size={16} />}
+          onClick={redo}
           disabled={!canRedo}
           title="Redo (Ctrl+Y)"
+          size={36}
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            border: 'none',
             background: 'transparent',
+            border: 'none',
+            boxShadow: 'none',
             color: canRedo ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.2)',
             cursor: canRedo ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.2s ease',
           }}
-          onMouseEnter={e => { if (canRedo) e.currentTarget.style.background = 'rgba(255,255,255,0.1)' }}
-          onMouseLeave={e => { if (canRedo) e.currentTarget.style.background = 'transparent' }}
-        >
-          <IconRotateCw size={16} />
-        </button>
+        />
       </div>
 
       <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 8px' }} />
 
       <button
-        onClick={onResetZoom}
+        onClick={handleResetZoom}
         title="Reset Zoom to 100%"
         style={{
           padding: '6px 12px',
@@ -206,8 +171,8 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }}
         onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.3)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}
       >
-        {Math.round(zoomLevel * 100)}%
+        {Math.round(viewport.zoom * 100)}%
       </button>
-    </div>
+    </Panel>
   );
 };

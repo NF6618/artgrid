@@ -1,27 +1,9 @@
 import React from 'react';
 import { ArtGridNode, NoteColor, TextNode, ShapeNode, PenNode, ArrowNode, SectionNode, ImageNode } from '../engine/types';
 import { IconCopy, IconTrash, IconLock, IconUnlock, IconPencil } from '../../../components/Icons';
-
-interface BoardPropertyBarProps {
-  selectedNodes: ArtGridNode[];
-  onDelete: () => void;
-  onDuplicate: () => void;
-  onBringToFront: () => void;
-  onSendToBack: () => void;
-  onChangeColor?: (color: NoteColor) => void;
-  onChangeFontFamily?: (fontFamily: string) => void;
-  onChangeFontSize?: (fontSize: number) => void;
-  onChangeTextColor?: (color: string) => void;
-  onChangeShapeFill?: (color: string) => void;
-  onChangeShapeStroke?: (color: string) => void;
-  onChangeShapeType?: (type: 'rectangle' | 'ellipse') => void;
-  onChangePenColor?: (color: string) => void;
-  onChangePenWidth?: (width: number) => void;
-  onChangeArrowColor?: (color: string) => void;
-  onChangeSectionColor?: (color: string) => void;
-  onChangeNodeSize?: (width: number, height: number) => void;
-  onToggleLock: () => void;
-}
+import { useCanvasStore } from '../stores/useCanvasStore';
+import { Panel } from '../../../components/ui/Panel';
+import { IconButton } from '../../../components/ui/IconButton';
 
 const ColorPicker: React.FC<{ value: string; onChange: (v: string) => void; title: string }> = ({ value, onChange, title }) => (
   <div 
@@ -49,29 +31,46 @@ const ColorPicker: React.FC<{ value: string; onChange: (v: string) => void; titl
 
 const Divider = () => <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />;
 
-export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
-  selectedNodes,
-  onDelete,
-  onDuplicate,
-  onBringToFront,
-  onSendToBack,
-  onChangeColor,
-  onChangeFontFamily,
-  onChangeFontSize,
-  onChangeTextColor,
-  onChangeShapeFill,
-  onChangeShapeStroke,
-  onChangeShapeType,
-  onChangePenColor,
-  onChangePenWidth,
-  onChangeArrowColor,
-  onChangeSectionColor,
-  onChangeNodeSize,
-  onToggleLock,
-}) => {
+export const BoardPropertyBar: React.FC = () => {
+  const { nodes, selectedIds, setNodes } = useCanvasStore();
   const [isRatioLocked, setIsRatioLocked] = React.useState(true);
+  
+  const selectedNodes = nodes.filter(n => selectedIds.includes(n.id));
 
   if (selectedNodes.length === 0) return null;
+
+  const updateSelected = (updater: (node: any) => any) => {
+    setNodes(nodes.map(n => selectedIds.includes(n.id) ? (updater(n) as ArtGridNode) : n), true);
+  };
+
+  const onDelete = () => {
+    setNodes(nodes.filter(n => !selectedIds.includes(n.id)), true);
+  };
+
+  const onDuplicate = () => {
+    const newNodes = selectedNodes.map(n => ({
+      ...n,
+      id: crypto.randomUUID(),
+      x: n.x + 20,
+      y: n.y + 20,
+    }));
+    setNodes([...nodes, ...newNodes], true);
+  };
+
+  const onBringToFront = () => {
+    const remaining = nodes.filter(n => !selectedIds.includes(n.id));
+    setNodes([...remaining, ...selectedNodes], true);
+  };
+
+  const onSendToBack = () => {
+    const remaining = nodes.filter(n => !selectedIds.includes(n.id));
+    setNodes([...selectedNodes, ...remaining], true);
+  };
+
+  const onToggleLock = () => {
+    const anyUnlocked = selectedNodes.some(n => !n.locked);
+    updateSelected(n => ({ ...n, locked: anyUnlocked }));
+  };
 
   const firstNode = selectedNodes[0];
   const isSingle = selectedNodes.length === 1;
@@ -94,7 +93,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
   ];
 
   return (
-    <div
+    <Panel
       style={{
         position: 'absolute',
         top: 80,
@@ -103,14 +102,9 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        background: 'rgba(20, 20, 25, 0.75)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
         borderRadius: 14,
         padding: '8px 16px',
-        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
         zIndex: 100,
-        backdropFilter: 'blur(32px) saturate(150%)',
-        WebkitBackdropFilter: 'blur(32px) saturate(150%)',
         userSelect: 'none',
       }}
       onClick={e => e.stopPropagation()}
@@ -123,7 +117,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
       <Divider />
 
       {/* Sticky Note Color Palette */}
-      {isNote && onChangeColor && (
+      {isNote && (
         <>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {noteColors.map(c => {
@@ -131,7 +125,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
               return (
                 <div
                   key={c.name}
-                  onClick={() => onChangeColor(c.name)}
+                  onClick={() => updateSelected(n => ({ ...n, color: c.name }))}
                   title={`Note color: ${c.name}`}
                   style={{
                     width: 22,
@@ -188,7 +182,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
       )}
 
       {/* Resize Inputs */}
-      {isSingle && !isLocked && onChangeNodeSize && (
+      {isSingle && !isLocked && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 600 }}>
             W
@@ -199,9 +193,9 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
                 const newW = Number(e.target.value) || firstNode.width;
                 if (isRatioLocked) {
                   const ratio = firstNode.height / firstNode.width;
-                  onChangeNodeSize(newW, newW * ratio);
+                  updateSelected(n => ({ ...n, width: newW, height: newW * ratio }));
                 } else {
-                  onChangeNodeSize(newW, firstNode.height);
+                  updateSelected(n => ({ ...n, width: newW }));
                 }
               }}
               style={{
@@ -242,9 +236,9 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
                 const newH = Number(e.target.value) || firstNode.height;
                 if (isRatioLocked) {
                   const ratio = firstNode.width / firstNode.height;
-                  onChangeNodeSize(newH * ratio, newH);
+                  updateSelected(n => ({ ...n, width: newH * ratio, height: newH }));
                 } else {
-                  onChangeNodeSize(firstNode.width, newH);
+                  updateSelected(n => ({ ...n, height: newH }));
                 }
               }}
               style={{
@@ -267,54 +261,48 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
       {/* Text Box Props */}
       {isText && (
         <>
-          {onChangeFontFamily && (
-            <select
-              value={(firstNode as TextNode).fontFamily || 'Inter'}
-              onChange={e => onChangeFontFamily(e.target.value)}
-              style={{
-                padding: '4px 8px',
-                borderRadius: 6,
-                background: 'rgba(0,0,0,0.3)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: '#fff',
-                fontSize: '12px',
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="Inter">Inter</option>
-              <option value="Roboto">Roboto</option>
-              <option value="Outfit">Outfit</option>
-              <option value="JetBrains Mono">JetBrains Mono</option>
-              <option value="Playfair Display">Playfair Display</option>
-              <option value="System Default">System Default</option>
-            </select>
-          )}
+          <select
+            value={(firstNode as TextNode).fontFamily || 'Inter'}
+            onChange={e => updateSelected(n => ({ ...n, fontFamily: e.target.value }))}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: '#fff',
+              fontSize: '12px',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="Inter">Inter</option>
+            <option value="Roboto">Roboto</option>
+            <option value="Outfit">Outfit</option>
+            <option value="JetBrains Mono">JetBrains Mono</option>
+            <option value="Playfair Display">Playfair Display</option>
+            <option value="System Default">System Default</option>
+          </select>
 
-          {onChangeFontSize && (
-            <select
-              value={(firstNode as TextNode).fontSize || 18}
-              onChange={e => onChangeFontSize(Number(e.target.value))}
-              style={{
-                padding: '4px 8px',
-                borderRadius: 6,
-                background: 'rgba(0,0,0,0.3)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: '#fff',
-                fontSize: '12px',
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {[12, 14, 18, 24, 32, 48, 64, 72].map(size => (
-                <option key={size} value={size}>{size}px</option>
-              ))}
-            </select>
-          )}
+          <select
+            value={(firstNode as TextNode).fontSize || 18}
+            onChange={e => updateSelected(n => ({ ...n, fontSize: Number(e.target.value) }))}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: '#fff',
+              fontSize: '12px',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            {[12, 14, 18, 24, 32, 48, 64, 72].map(size => (
+              <option key={size} value={size}>{size}px</option>
+            ))}
+          </select>
 
-          {onChangeTextColor && (
-            <ColorPicker value={(firstNode as TextNode).color || '#e8e8f0'} onChange={onChangeTextColor} title="Text Color" />
-          )}
+          <ColorPicker value={(firstNode as TextNode).color || '#e8e8f0'} onChange={v => updateSelected(n => ({ ...n, color: v }))} title="Text Color" />
           <Divider />
         </>
       )}
@@ -322,31 +310,26 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
       {/* Shape Properties */}
       {isShape && (
         <>
-          {onChangeShapeType && (
-            <select
-              value={(firstNode as ShapeNode).shapeType || 'rectangle'}
-              onChange={e => onChangeShapeType(e.target.value as 'rectangle' | 'ellipse')}
-              style={{
-                padding: '4px 8px',
-                borderRadius: 6,
-                background: 'rgba(0,0,0,0.3)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: '#fff',
-                fontSize: '12px',
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="rectangle">Rectangle</option>
-              <option value="ellipse">Ellipse</option>
-            </select>
-          )}
-          {onChangeShapeFill && (
-            <ColorPicker value={(firstNode as ShapeNode).fillColor || '#7c6bf0'} onChange={onChangeShapeFill} title="Fill Color" />
-          )}
-          {onChangeShapeStroke && (
-            <ColorPicker value={(firstNode as ShapeNode).strokeColor || '#7c6bf0'} onChange={onChangeShapeStroke} title="Stroke Color" />
-          )}
+          <select
+            value={(firstNode as ShapeNode).shapeType || 'rectangle'}
+            onChange={e => updateSelected(n => ({ ...n, shapeType: e.target.value as 'rectangle' | 'ellipse' }))}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: '#fff',
+              fontSize: '12px',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="rectangle">Rectangle</option>
+            <option value="ellipse">Ellipse</option>
+          </select>
+          
+          <ColorPicker value={(firstNode as ShapeNode).fillColor || '#7c6bf0'} onChange={v => updateSelected(n => ({ ...n, fillColor: v }))} title="Fill Color" />
+          <ColorPicker value={(firstNode as ShapeNode).strokeColor || '#7c6bf0'} onChange={v => updateSelected(n => ({ ...n, strokeColor: v }))} title="Stroke Color" />
           <Divider />
         </>
       )}
@@ -354,13 +337,13 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
       {/* Pen/Arrow Properties */}
       {(isPen || isArrow) && (
         <>
-          {isPen && onChangePenColor && <ColorPicker value={(firstNode as PenNode).color || '#7c6bf0'} onChange={onChangePenColor} title="Stroke Color" />}
-          {isArrow && onChangeArrowColor && <ColorPicker value={(firstNode as ArrowNode).color || '#7c6bf0'} onChange={onChangeArrowColor} title="Arrow Color" />}
+          {isPen && <ColorPicker value={(firstNode as PenNode).color || '#7c6bf0'} onChange={v => updateSelected(n => ({ ...n, color: v }))} title="Stroke Color" />}
+          {isArrow && <ColorPicker value={(firstNode as ArrowNode).color || '#7c6bf0'} onChange={v => updateSelected(n => ({ ...n, color: v }))} title="Arrow Color" />}
           
-          {isPen && onChangePenWidth && (
+          {isPen && (
             <select
               value={(firstNode as PenNode).strokeWidth || 4}
-              onChange={e => onChangePenWidth(Number(e.target.value))}
+              onChange={e => updateSelected(n => ({ ...n, strokeWidth: Number(e.target.value) }))}
               style={{
                 padding: '4px 8px',
                 borderRadius: 6,
@@ -385,7 +368,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
       {/* Section Properties */}
       {isSection && (
         <>
-          {onChangeSectionColor && <ColorPicker value={(firstNode as SectionNode).color || '#7c6bf0'} onChange={onChangeSectionColor} title="Header Color" />}
+          <ColorPicker value={(firstNode as SectionNode).color || '#7c6bf0'} onChange={v => updateSelected(n => ({ ...n, color: v }))} title="Header Color" />
           <Divider />
         </>
       )}
@@ -410,33 +393,36 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
 
       <Divider />
 
-      <button
+      <IconButton
+        icon={<IconCopy size={16} />}
         onClick={onDuplicate}
         title="Duplicate (Ctrl+D)"
-        style={{ padding: '6px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-      >
-        <IconCopy size={16} />
-      </button>
+        size={28}
+        style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
+      />
 
-      <button
+      <IconButton
+        icon={isLocked ? <IconLock size={16} /> : <IconUnlock size={16} />}
         onClick={onToggleLock}
         title={isLocked ? "Unlock Element" : "Lock Element"}
-        style={{ padding: '6px', background: 'transparent', border: 'none', color: isLocked ? 'var(--accent-primary)' : 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-      >
-        {isLocked ? <IconLock size={16} /> : <IconUnlock size={16} />}
-      </button>
+        size={28}
+        style={{
+          background: 'transparent', border: 'none', boxShadow: 'none',
+          color: isLocked ? 'var(--accent-primary)' : 'rgba(255,255,255,0.6)'
+        }}
+      />
 
-      <button
+      <IconButton
+        icon={<IconTrash size={16} />}
         onClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
           onDelete();
         }}
         title="Delete (Backspace)"
-        style={{ padding: '6px', background: 'transparent', border: 'none', color: '#f06b8e', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-      >
-        <IconTrash size={16} />
-      </button>
-    </div>
+        size={28}
+        style={{ background: 'transparent', border: 'none', boxShadow: 'none', color: '#f06b8e' }}
+      />
+    </Panel>
   );
 };

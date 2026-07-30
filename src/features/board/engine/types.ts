@@ -36,13 +36,23 @@ export interface SectionNode extends BaseNode {
   description?: string;
 }
 
+export interface ImageAdjustments {
+  brightness: number; // -100 to 100, default 0
+  contrast: number;   // -100 to 100, default 0
+  saturation: number; // -100 to 100, default 0
+  sharpness: number;  // 0 to 100, default 0
+  removeBackground?: boolean;
+}
+
 export interface ImageNode extends BaseNode {
   type: 'image';
   src: string;
   assetId?: string;
   originalWidth?: number;
   originalHeight?: number;
+  // crop represents UV coordinates (percentages 0.0 to 1.0) relative to original width/height
   crop?: { x: number; y: number; width: number; height: number };
+  adjustments?: ImageAdjustments;
 }
 
 export interface NoteNode extends BaseNode {
@@ -73,6 +83,10 @@ export interface ArrowNode extends BaseNode {
   type: 'arrow';
   startPoint: Point;
   endPoint: Point;
+  startNodeId?: string;
+  endNodeId?: string;
+  startAnchor?: 'top' | 'right' | 'bottom' | 'left' | 'center';
+  endAnchor?: 'top' | 'right' | 'bottom' | 'left' | 'center';
   color?: string;
   strokeWidth?: number;
   arrowHead?: 'end' | 'both' | 'none';

@@ -44,6 +44,15 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
     setPreviewUrl(null);
   }, [asset, resolvedUrl]);
 
+  // Clean up Object URL to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
   const imageFilterCss = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hueRotate}deg) blur(${blur}px)`;
   const imageTransformCss = `rotate(${rotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`;
 
@@ -86,13 +95,25 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
     setAiStatus('Downloading AI models & processing...');
     console.log(`[AI Studio] Starting Background Removal for: ${asset.title}`);
     try {
-      const imageBlob = await removeBackground(previewUrl || resolvedUrl, {
-        progress: (key, current, total) => {
-          const pct = Math.round((current/total)*100);
-          setAiStatus(`Removing background: ${key} ${pct}%`);
-          console.log(`[AI Studio] BG Removal Progress [${key}]: ${pct}%`);
-        }
-      });
+      let imageBlob: Blob;
+      
+      // Attempt Rust-native accelerated removal first (Step 5 of Architecture Plan)
+      try {
+        console.log(`[AI Studio] Attempting Rust native background removal...`);
+        const rustMaskBytes = await invoke<number[]>('remove_background', { imagePath: asset.filepath });
+        imageBlob = new Blob([new Uint8Array(rustMaskBytes)], { type: 'image/png' });
+        console.log(`[AI Studio] Rust native removal successful.`);
+      } catch (rustErr) {
+        console.warn(`[AI Studio] Rust native removal unavailable, falling back to JS @imgly implementation:`, rustErr);
+        // Fallback to JS implementation
+        imageBlob = await removeBackground(previewUrl || resolvedUrl, {
+          progress: (key, current, total) => {
+            const pct = Math.round((current/total)*100);
+            setAiStatus(`Removing background: ${key} ${pct}%`);
+            console.log(`[AI Studio] BG Removal Progress [${key}]: ${pct}%`);
+          }
+        });
+      }
       
       setAiStatus('Saving to Vault...');
       console.log(`[AI Studio] Background removal complete. Saving to vault...`);

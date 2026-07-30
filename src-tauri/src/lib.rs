@@ -90,6 +90,7 @@ pub fn run() {
             metadata::remove_asset_from_collection,
             ai::pipeline::ai_remove_background,
             ai::pipeline::ai_upscale_image,
+            ai::image_processing::remove_background,
             folders::get_folders,
             folders::create_folder,
             search::search_assets

@@ -4,7 +4,6 @@ import { Toolbar } from './components/Toolbar';
 import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
-import { BoardCanvas } from './features/board/components/BoardCanvas';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { api } from './services/api';
 import { listen } from '@tauri-apps/api/event';
@@ -16,7 +15,6 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useMetadataStore } from './stores/useMetadataStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
-import { IconPencil } from './components/Icons';
 import { ImportVaultModal } from './components/ImportVaultModal';
 import { SplashLoader } from './components/SplashLoader';
 import { ImportProgressModal, ImportProgressData } from './components/ImportProgressModal';
@@ -163,8 +161,6 @@ const App: React.FC = () => {
   const [standaloneAllAssets, setStandaloneAllAssets] = useState<Asset[]>([]);
   const [standaloneDetailVisible, setStandaloneDetailVisible] = useState(false);
 
-  const [mediaDrawerTab, setMediaDrawerTab] = useState<'library' | 'layers'>('library');
-
   // Standalone window asset loading.
   // The Rust backend's AppState (DB connection) is shared across all windows,
   // so if the main window already opened the vault, get_assets works immediately.
@@ -297,7 +293,6 @@ const App: React.FC = () => {
   }, []);
 
   // Board Media Drawer State & Filtering
-  const [isMediaDrawerCollapsed, setIsMediaDrawerCollapsed] = useState(false);
   const [boardSearchQuery, setBoardSearchQuery] = useState('');
   const [boardCategoryFilter, setBoardCategoryFilter] = useState('all');
   const [boardSortBy, setBoardSortBy] = useState('date');
