@@ -4,10 +4,11 @@ import Upscaler from 'upscaler';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { IconPencil, IconDownload } from '../Icons';
+import { Asset } from '../Gallery';
 import { ViewerProps } from './ViewerTypes';
 import { AIToolbar } from './AIToolbar';
 
-export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsUpdated, setViewerControls }) => {
+export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsUpdated, setViewerControls, sourceNodeId, onAssetCreatedFromStudio }) => {
   const [showEditStudio, setShowEditStudio] = useState(false);
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
@@ -65,12 +66,15 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
 
       const dataUrl = canvas.toDataURL('image/png');
       try {
-        await invoke('save_base64_image_asset', {
+        const newAsset = await invoke<Asset>('save_base64_image_asset', {
           title: `Edited_${asset.title}`,
           base64Data: dataUrl,
         });
         alert('Edited image saved as a new asset in your library!');
         if (onAssetsUpdated) onAssetsUpdated();
+        if (sourceNodeId && onAssetCreatedFromStudio) {
+          onAssetCreatedFromStudio(newAsset, sourceNodeId);
+        }
       } catch (err) {
         console.error("Failed to save edited image asset:", err);
       }
@@ -80,17 +84,48 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
   const handleRemoveBackground = async () => {
     setIsProcessingAI(true);
     setAiStatus('Downloading AI models & processing...');
+    console.log(`[AI Studio] Starting Background Removal for: ${asset.title}`);
     try {
       const imageBlob = await removeBackground(previewUrl || resolvedUrl, {
         progress: (key, current, total) => {
-          setAiStatus(`Removing background: ${key} ${Math.round((current/total)*100)}%`);
+          const pct = Math.round((current/total)*100);
+          setAiStatus(`Removing background: ${key} ${pct}%`);
+          console.log(`[AI Studio] BG Removal Progress [${key}]: ${pct}%`);
         }
       });
+      
+      setAiStatus('Saving to Vault...');
+      console.log(`[AI Studio] Background removal complete. Saving to vault...`);
+      
+      const blobToBase64 = (blob: Blob): Promise<string> => new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onloadend = () => res(reader.result as string);
+        reader.onerror = rej;
+        reader.readAsDataURL(blob);
+      });
+      const base64data = await blobToBase64(imageBlob);
+      
+      const newAsset = await invoke<Asset>('save_base64_image_asset', {
+        title: `NoBG_${asset.title}`,
+        base64Data: base64data,
+      });
+      
+      if (onAssetsUpdated) onAssetsUpdated();
+      if (sourceNodeId && onAssetCreatedFromStudio) {
+        onAssetCreatedFromStudio(newAsset, sourceNodeId);
+      }
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('AI Background Removal', { body: 'Image successfully saved to Vault.' });
+      } else {
+        alert('AI Background Removal complete! The new image was saved to your library.');
+      }
+      
       const objectUrl = URL.createObjectURL(imageBlob);
       setPreviewUrl(objectUrl);
       resetImageAdjustments();
     } catch (e) {
-      console.error(e);
+      console.error("[AI Studio] Background removal failed:", e);
       alert('Background removal failed.');
     } finally {
       setIsProcessingAI(false);
@@ -101,19 +136,42 @@ export const ImageViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAsset
   const handleUpscale = async () => {
     setIsProcessingAI(true);
     setAiStatus('Downloading ESRGAN model & upscaling...');
+    console.log(`[AI Studio] Starting Upscale for: ${asset.title}`);
     try {
       const upscaler = new Upscaler();
       const dataUrl = await upscaler.upscale(previewUrl || resolvedUrl, {
         patchSize: 64,
         padding: 2,
         progress: (amount) => {
-          setAiStatus(`Upscaling: ${Math.round(amount * 100)}%`);
+          const pct = Math.round(amount * 100);
+          setAiStatus(`Upscaling: ${pct}%`);
+          console.log(`[AI Studio] Upscale Progress: ${pct}%`);
         }
       });
+      
+      setAiStatus('Saving to Vault...');
+      console.log(`[AI Studio] Upscale complete. Saving to vault...`);
+      
+      const newAsset = await invoke<Asset>('save_base64_image_asset', {
+        title: `Upscaled_${asset.title}`,
+        base64Data: dataUrl,
+      });
+      
+      if (onAssetsUpdated) onAssetsUpdated();
+      if (sourceNodeId && onAssetCreatedFromStudio) {
+        onAssetCreatedFromStudio(newAsset, sourceNodeId);
+      }
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('AI Upscale', { body: 'Upscaled image successfully saved to Vault.' });
+      } else {
+        alert('AI Upscale complete! The new image was saved to your library.');
+      }
+      
       setPreviewUrl(dataUrl);
       resetImageAdjustments();
     } catch(e) {
-      console.error(e);
+      console.error("[AI Studio] Upscaling failed:", e);
       alert('Upscaling failed. Image might be too large for browser memory.');
     } finally {
       setIsProcessingAI(false);

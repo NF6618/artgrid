@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconArtGrid, IconMinimize, IconMaximize, IconClose } from './Icons';
+import { IconMinimize, IconMaximize, IconClose } from './Icons';
 
 interface TitlebarProps {
   title?: string;
@@ -10,7 +10,7 @@ interface TitlebarProps {
 }
 
 export const Titlebar: React.FC<TitlebarProps> = ({
-  title = 'ArtGrid',
+  title = 'Xios.dev',
   canGoBack = false,
   canGoForward = false,
   onGoBack,
@@ -59,9 +59,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
     <div className="titlebar" data-tauri-drag-region style={{ userSelect: 'none' }}>
       {/* Navigation & Branding Group */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, zIndex: 10 }}>
-        <div className="titlebar__logo">
-          <IconArtGrid size={18} />
-        </div>
+          <img src="/xios_logo.png" alt="Xios Logo" style={{ height: 28, marginLeft: 4 }} />
 
         {/* Back & Forward History Buttons */}
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>

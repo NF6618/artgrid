@@ -17,6 +17,8 @@ interface FileViewerModalProps {
   isPopOutWindow?: boolean;
   onToggleDetail?: () => void;
   showDetailToggle?: boolean;
+  sourceNodeId?: string;
+  onAssetCreatedFromStudio?: (newAsset: Asset, sourceNodeId: string) => void;
 }
 
 export const FileViewerModal: React.FC<FileViewerModalProps> = ({ 
@@ -29,6 +31,8 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   isPopOutWindow: isPopOutProp = false,
   onToggleDetail,
   showDetailToggle = false,
+  sourceNodeId,
+  onAssetCreatedFromStudio,
 }) => {
   const { vaultPath } = useSettingsStore();
   const [viewerControls, setViewerControls] = useState<ReactNode>(null);
@@ -231,6 +235,8 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
             resolvedUrl={resolvedUrl} 
             onAssetsUpdated={onAssetsUpdated} 
             setViewerControls={setViewerControls}
+            sourceNodeId={sourceNodeId}
+            onAssetCreatedFromStudio={onAssetCreatedFromStudio}
           />
         ) : isPdf ? (
           <PdfViewer 
@@ -238,6 +244,8 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
             resolvedUrl={resolvedUrl} 
             onAssetsUpdated={onAssetsUpdated} 
             setViewerControls={setViewerControls}
+            sourceNodeId={sourceNodeId}
+            onAssetCreatedFromStudio={onAssetCreatedFromStudio}
           />
         ) : isDocx || isText ? (
           <TextViewer 
@@ -245,6 +253,8 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
             resolvedUrl={resolvedUrl} 
             isDocx={isDocx} 
             setViewerControls={setViewerControls}
+            sourceNodeId={sourceNodeId}
+            onAssetCreatedFromStudio={onAssetCreatedFromStudio}
           />
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>

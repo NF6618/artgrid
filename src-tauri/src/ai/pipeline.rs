@@ -4,10 +4,10 @@ use tauri::{AppHandle, Manager, Emitter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AiTask {
-    ProcessImport { asset_id: String },
+    ProcessImport { document_id: String },
+    GenerateEmbeddings { document_id: String },
     RemoveBackground { asset_id: String },
     UpscaleImage { asset_id: String },
-    ExtractText { asset_id: String },
 }
 
 pub struct AiPipeline {
@@ -16,21 +16,186 @@ pub struct AiPipeline {
 
 impl AiPipeline {
     pub fn new(app_handle: AppHandle) -> Self {
-        // Bounded channel to handle async job queuing
         let (tx, mut rx) = mpsc::channel::<AiTask>(100);
         
         let app = app_handle.clone();
         tauri::async_runtime::spawn(async move {
+            let registry = crate::importers::ImporterRegistry::new();
+
             while let Some(task) = rx.recv().await {
                 println!("ARTGRID AI: Processing task: {:?}", task);
                 
-                // Simulate processing time
-                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-                // Implementation will call the respective modules here in Phase 4
                 match task {
-                    AiTask::ProcessImport { asset_id } => {
-                        println!("ARTGRID AI: Finished ProcessImport for {}", asset_id);
+                    AiTask::ProcessImport { document_id } => {
+                        println!("ARTGRID AI: Starting ProcessImport for {}", document_id);
+                        let state = app.state::<crate::import::AppState>();
+                        
+                        let mut doc_info = None;
+                        if let Ok(db_lock) = state.db.lock() {
+                            if let Some(conn) = db_lock.as_ref() {
+                                if let Ok(mut stmt) = conn.prepare("SELECT id, title, filename, filepath, type, size, date_added FROM documents WHERE id = ?1") {
+                                    if let Ok(mut rows) = stmt.query([&document_id]) {
+                                        if let Ok(Some(row)) = rows.next() {
+                                            let draft = crate::importers::DocumentDraft {
+                                                id: row.get(0).unwrap(),
+                                                title: row.get(1).unwrap(),
+                                                filename: row.get(2).unwrap(),
+                                                filepath: std::path::PathBuf::from(row.get::<_, String>(3).unwrap()),
+                                                type_: row.get(4).unwrap(),
+                                                size_str: row.get(5).unwrap(),
+                                                date_added: row.get(6).unwrap(),
+                                            };
+                                            doc_info = Some(draft);
+                                        }
+                                    }
+                                }
+                                // Update status to extracting
+                                let _ = conn.execute("UPDATE documents SET status = 'extracting' WHERE id = ?1", [&document_id]);
+                            }
+                        }
+
+                        if let Some(doc) = doc_info {
+                            let vault_path = {
+                                let lock = state.vault_path.lock().unwrap();
+                                lock.as_ref().unwrap().clone()
+                            };
+
+                            let ext = doc.filepath.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+                            
+                            if let Some(importer) = registry.find(&ext) {
+                                match importer.extract(&doc, &vault_path) {
+                                    Ok(assets) => {
+                                        if let Ok(db_lock) = state.db.lock() {
+                                            if let Some(conn) = db_lock.as_ref() {
+                                                let now = chrono::Utc::now().to_rfc3339();
+                                                
+                                                for asset in &assets {
+                                                    let url = vault_path.join(&asset.filepath).to_string_lossy().into_owned();
+                                                    
+                                                    let _ = conn.execute(
+                                                        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, document_id, page_number, page_text, status, thumbnail_url) 
+                                                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                                                        (
+                                                            &asset.id,
+                                                            &asset.title,
+                                                            &asset.filename,
+                                                            &asset.filepath.to_string_lossy().into_owned(),
+                                                            &asset.type_,
+                                                            &asset.size_str,
+                                                            &asset.width,
+                                                            &asset.height,
+                                                            &false,
+                                                            &now,
+                                                            &url,
+                                                            &doc.id,
+                                                            &asset.page_number,
+                                                            &asset.page_text,
+                                                            &"embedding",
+                                                            &asset.thumbnail_url.as_ref().map(|p| p.to_string_lossy().into_owned())
+                                                        ),
+                                                    );
+                                                }
+                                                
+                                                let _ = conn.execute("UPDATE documents SET page_count = ?1, status = 'embedding' WHERE id = ?2", (assets.len() as u32, &doc.id));
+                                            }
+                                        }
+                                        
+                                        let _ = app.emit("vault-updated", ());
+                                        
+                                        // Queue embeddings step
+                                        let state_pipeline = app.state::<AiPipeline>();
+                                        state_pipeline.queue_task_sync(AiTask::GenerateEmbeddings { document_id: doc.id });
+                                    }
+                                    Err(e) => {
+                                        println!("ARTGRID AI: Extraction failed for doc {}: {}", doc.id, e);
+                                        if let Ok(db_lock) = state.db.lock() {
+                                            if let Some(conn) = db_lock.as_ref() {
+                                                let _ = conn.execute("UPDATE documents SET status = 'failed', error = ?1 WHERE id = ?2", (&e, &doc.id));
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No extractor needed; just set indexed
+                                if let Ok(db_lock) = state.db.lock() {
+                                    if let Some(conn) = db_lock.as_ref() {
+                                        let _ = conn.execute("UPDATE documents SET status = 'indexed' WHERE id = ?1", [&doc.id]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    AiTask::GenerateEmbeddings { document_id } => {
+                        println!("ARTGRID AI: GenerateEmbeddings for {}", document_id);
+                        
+                        let state = app.state::<crate::import::AppState>();
+                        let vault_path = {
+                            let lock = state.vault_path.lock().unwrap();
+                            lock.as_ref().unwrap().clone()
+                        };
+
+                        let embedder = crate::ai::embedder::StubEmbedder;
+                        let mut asset_updates = Vec::new();
+
+                        if let Ok(db_lock) = state.db.lock() {
+                            if let Some(conn) = db_lock.as_ref() {
+                                // 1. Read all assets for this document
+                                if let Ok(mut stmt) = conn.prepare("SELECT id, filepath, page_text FROM assets WHERE document_id = ?1") {
+                                    if let Ok(mut rows) = stmt.query([&document_id]) {
+                                        while let Ok(Some(row)) = rows.next() {
+                                            let asset_id: String = row.get(0).unwrap();
+                                            let filepath: String = row.get(1).unwrap();
+                                            let page_text: Option<String> = row.get(2).unwrap();
+                                            asset_updates.push((asset_id, filepath, page_text));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Generate embeddings outside of the DB lock
+                        let mut computed_embeddings = Vec::new();
+                        for (asset_id, rel_filepath, page_text) in asset_updates {
+                            let text_emb = match page_text {
+                                Some(ref t) if !t.trim().is_empty() => {
+                                    Some(crate::ai::embedder::to_blob(&crate::ai::embedder::Embedder::embed_text(&embedder, t)))
+                                }
+                                _ => None,
+                            };
+
+                            let abs_path = vault_path.join(&rel_filepath);
+                            let img_emb = crate::ai::embedder::to_blob(&crate::ai::embedder::Embedder::embed_image(&embedder, &abs_path));
+                            
+                            computed_embeddings.push((asset_id, text_emb, img_emb));
+                        }
+
+                        // 3. Write them to DB and mark as indexed
+                        if let Ok(db_lock) = state.db.lock() {
+                            if let Some(conn) = db_lock.as_ref() {
+                                let now = chrono::Utc::now().to_rfc3339();
+                                
+                                for (asset_id, text_emb, img_emb) in computed_embeddings {
+                                    let _ = conn.execute(
+                                        "INSERT OR REPLACE INTO asset_embeddings (asset_id, text_embedding, image_embedding, indexed_at) 
+                                         VALUES (?1, ?2, ?3, ?4)",
+                                        (
+                                            &asset_id,
+                                            text_emb.as_deref(),
+                                            &img_emb,
+                                            &now,
+                                        ),
+                                    );
+                                    let _ = conn.execute("UPDATE assets SET status = 'indexed' WHERE id = ?1", [&asset_id]);
+                                    
+                                    // Notify frontend
+                                    let _ = app.emit("asset-indexed", asset_id);
+                                }
+                                
+                                let _ = conn.execute("UPDATE documents SET status = 'indexed' WHERE id = ?1", [&document_id]);
+                            }
+                        }
+                        
+                        let _ = app.emit("vault-updated", ());
                     }
                     AiTask::RemoveBackground { asset_id } => {
                         println!("ARTGRID AI: Finished RemoveBackground for {}", asset_id);
@@ -38,79 +203,7 @@ impl AiPipeline {
                     AiTask::UpscaleImage { asset_id } => {
                         println!("ARTGRID AI: Finished UpscaleImage for {}", asset_id);
                     }
-                    AiTask::ExtractText { asset_id } => {
-                        println!("ARTGRID AI: Starting ExtractText for {}", asset_id);
-                        let state = app.state::<crate::import::AppState>();
-                        
-                        let mut pdf_path_opt = None;
-                        let mut title_opt = None;
-                        if let Ok(db_lock) = state.db.lock() {
-                            if let Some(conn) = db_lock.as_ref() {
-                                if let Ok(mut stmt) = conn.prepare("SELECT filepath, title FROM assets WHERE id = ?1") {
-                                    if let Ok(mut rows) = stmt.query([&asset_id]) {
-                                        if let Ok(Some(row)) = rows.next() {
-                                            if let Ok(path) = row.get::<_, String>(0) {
-                                                if let Ok(title) = row.get::<_, String>(1) {
-                                                    if let Ok(vault_lock) = state.vault_path.lock() {
-                                                        if let Some(vault) = vault_lock.as_ref() {
-                                                            pdf_path_opt = Some(vault.join(path));
-                                                            title_opt = Some(title);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let (Some(pdf_path), Some(title)) = (pdf_path_opt, title_opt) {
-                            if let Ok(text) = crate::ai::pdf_extractor::extract_pdf_text_and_images(&pdf_path).await {
-                                // Save extracted text
-                                if let Ok(db_lock) = state.db.lock() {
-                                    if let Some(conn) = db_lock.as_ref() {
-                                        let new_id = uuid::Uuid::new_v4().to_string();
-                                        let new_filename = format!("{}.txt", new_id);
-                                        if let Ok(vault_lock) = state.vault_path.lock() {
-                                            if let Some(vault) = vault_lock.as_ref() {
-                                                let dest_rel_path = std::path::PathBuf::from("artgrid").join("media").join(&new_filename);
-                                                let dest_abs_path = vault.join(&dest_rel_path);
-                                                
-                                                if std::fs::write(&dest_abs_path, text).is_ok() {
-                                                    let now = chrono::Utc::now().to_rfc3339();
-                                                    let url = dest_abs_path.to_string_lossy().into_owned();
-                                                    
-                                                    let _ = conn.execute(
-                                                        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url) 
-                                                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                                                        (
-                                                            &new_id,
-                                                            &format!("DeepOCR_{}", title),
-                                                            &new_filename,
-                                                            &dest_rel_path.to_string_lossy().into_owned(),
-                                                            &"text/plain",
-                                                            &"0 MB",
-                                                            &0,
-                                                            &0,
-                                                            &false,
-                                                            &now,
-                                                            &url,
-                                                        ),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                println!("ARTGRID AI: Finished ExtractText for {} successfully.", asset_id);
-                            }
-                        }
-                    }
                 }
-                
-                // Notify frontend to reload assets
-                let _ = app.emit("vault-updated", ());
             }
         });
 
@@ -136,11 +229,5 @@ pub async fn ai_remove_background(asset_id: String, pipeline: tauri::State<'_, A
 #[tauri::command]
 pub async fn ai_upscale_image(asset_id: String, pipeline: tauri::State<'_, AiPipeline>) -> Result<(), String> {
     pipeline.queue_task_sync(AiTask::UpscaleImage { asset_id });
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn ai_extract_text(asset_id: String, pipeline: tauri::State<'_, AiPipeline>) -> Result<(), String> {
-    pipeline.queue_task_sync(AiTask::ExtractText { asset_id });
     Ok(())
 }

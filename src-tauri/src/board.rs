@@ -30,7 +30,34 @@ pub fn get_boards(state: State<'_, AppState>) -> Result<Vec<Board>, String> {
     let board_iter = stmt
         .query_map([], |row| {
             let nodes_json: String = row.get(2)?;
-            let nodes: Vec<Value> = serde_json::from_str(&nodes_json).unwrap_or_default();
+            let mut nodes: Vec<Value> = serde_json::from_str(&nodes_json).unwrap_or_default();
+            
+            // Self-heal: backfill assetId from src for images if missing on load
+            for node in nodes.iter_mut() {
+                if let Some(obj) = node.as_object_mut() {
+                    let n_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    if n_type == "image" {
+                        let has_asset_id = obj.get("assetId").is_some() && !obj.get("assetId").unwrap().is_null();
+                        if !has_asset_id {
+                            if let Some(src_val) = obj.get("src") {
+                                if let Some(src) = src_val.as_str() {
+                                    let sql = "SELECT id FROM assets WHERE url = ?1 OR filepath = ?1 LIMIT 1";
+                                    if let Ok(mut stmt_inner) = conn.prepare(sql) {
+                                        if let Ok(mut rows_inner) = stmt_inner.query([src]) {
+                                            if let Ok(Some(row_inner)) = rows_inner.next() {
+                                                if let Ok(asset_id) = row_inner.get::<_, String>(0) {
+                                                    obj.insert("assetId".to_string(), Value::String(asset_id));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Ok(Board {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -76,13 +103,40 @@ pub fn create_board(title: String, state: State<'_, AppState>) -> Result<Board, 
 pub fn save_board(
     id: String,
     title: String,
-    nodes: Vec<Value>,
+    mut nodes: Vec<Value>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let db_lock = state.db.lock().unwrap();
     let conn = db_lock.as_ref().ok_or("No vault opened")?;
 
     let now = Utc::now().timestamp_millis();
+    
+    // Self-heal: backfill assetId from src for images if missing
+    for node in nodes.iter_mut() {
+        if let Some(obj) = node.as_object_mut() {
+            let n_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if n_type == "image" {
+                let has_asset_id = obj.get("assetId").is_some() && !obj.get("assetId").unwrap().is_null();
+                if !has_asset_id {
+                    if let Some(src_val) = obj.get("src") {
+                        if let Some(src) = src_val.as_str() {
+                            let sql = "SELECT id FROM assets WHERE url = ?1 OR filepath = ?1 LIMIT 1";
+                            if let Ok(mut stmt) = conn.prepare(sql) {
+                                if let Ok(mut rows) = stmt.query([src]) {
+                                    if let Ok(Some(row)) = rows.next() {
+                                        if let Ok(asset_id) = row.get::<_, String>(0) {
+                                            obj.insert("assetId".to_string(), Value::String(asset_id));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let nodes_json = serde_json::to_string(&nodes).map_err(|e| e.to_string())?;
 
     conn.execute(

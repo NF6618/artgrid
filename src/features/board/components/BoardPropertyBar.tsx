@@ -1,6 +1,6 @@
 import React from 'react';
-import { ArtGridNode, NoteColor, TextNode, ShapeNode, PenNode, ArrowNode, SectionNode } from '../engine/types';
-import { IconCopy, IconTrash, IconLock, IconUnlock } from '../../../components/Icons';
+import { ArtGridNode, NoteColor, TextNode, ShapeNode, PenNode, ArrowNode, SectionNode, ImageNode } from '../engine/types';
+import { IconCopy, IconTrash, IconLock, IconUnlock, IconPencil } from '../../../components/Icons';
 
 interface BoardPropertyBarProps {
   selectedNodes: ArtGridNode[];
@@ -19,6 +19,7 @@ interface BoardPropertyBarProps {
   onChangePenWidth?: (width: number) => void;
   onChangeArrowColor?: (color: string) => void;
   onChangeSectionColor?: (color: string) => void;
+  onChangeNodeSize?: (width: number, height: number) => void;
   onToggleLock: () => void;
 }
 
@@ -39,6 +40,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
   onChangePenWidth,
   onChangeArrowColor,
   onChangeSectionColor,
+  onChangeNodeSize,
   onToggleLock,
 }) => {
   if (selectedNodes.length === 0) return null;
@@ -51,6 +53,7 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
   const isPen = isSingle && firstNode.type === 'pen';
   const isArrow = isSingle && firstNode.type === 'arrow';
   const isSection = isSingle && firstNode.type === 'section';
+  const isImage = isSingle && firstNode.type === 'image';
   const isLocked = selectedNodes.some(n => n.locked);
 
   const colors: { name: NoteColor; hex: string }[] = [
@@ -112,6 +115,85 @@ export const BoardPropertyBar: React.FC<BoardPropertyBarProps> = ({
           </div>
           <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
         </>
+      )}
+
+      {/* Image Node Properties */}
+      {isImage && (firstNode as ImageNode).assetId && (
+        <>
+          <button
+            className="toolbar__btn"
+            title="Open Studio Tools"
+            onClick={(e) => {
+              e.stopPropagation();
+              const assetId = (firstNode as ImageNode).assetId;
+              if (assetId && (window as any).__artgridOpenPreviewAsset) {
+                // The actual Asset object is needed, but __artgridOpenPreviewAsset only strictly needs the ID and url,
+                // however, for safety we should ideally pass a full asset.
+                // We'll pass a mock asset with the ID and it will fallback to fetching if needed,
+                // OR we can rely on the fact that App.tsx `handleOpenPreviewAsset` takes an `Asset`.
+                // We'll pass a mock asset with the ID and it will fallback to fetching if needed.
+                const mockAsset = { id: assetId, title: 'Image.png', type: 'image/png', url: (firstNode as ImageNode).src } as any;
+                (window as any).__artgridOpenPreviewAsset(mockAsset);
+              }
+            }}
+            style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--accent-primary)' }}
+          >
+            <IconPencil size={12} /> Studio Tools
+          </button>
+          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
+        </>
+      )}
+
+      {/* Resize Inputs (For supported nodes) */}
+      {isSingle && !isLocked && onChangeNodeSize && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11px', color: 'var(--text-secondary)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            W
+            <input
+              type="number"
+              value={Math.round(firstNode.width)}
+              onChange={e => onChangeNodeSize(Number(e.target.value) || firstNode.width, firstNode.height)}
+              style={{
+                width: 48,
+                padding: '2px 4px',
+                borderRadius: 4,
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)',
+                fontSize: '11px',
+              }}
+            />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            H
+            <input
+              type="number"
+              value={Math.round(firstNode.height)}
+              onChange={e => onChangeNodeSize(firstNode.width, Number(e.target.value) || firstNode.height)}
+              style={{
+                width: 48,
+                padding: '2px 4px',
+                borderRadius: 4,
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)',
+                fontSize: '11px',
+              }}
+            />
+          </label>
+          <button
+            className="toolbar__btn"
+            onClick={() => {
+              const size = Math.max(firstNode.width, firstNode.height);
+              onChangeNodeSize(size, size);
+            }}
+            title="Square (1:1)"
+            style={{ padding: '2px 6px', fontSize: '10px', background: 'var(--bg-tertiary)' }}
+          >
+            1:1
+          </button>
+          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)', marginLeft: 4 }} />
+        </div>
       )}
 
       {/* Text Box Font Family & Size Selector */}

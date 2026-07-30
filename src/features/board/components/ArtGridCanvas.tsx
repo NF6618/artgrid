@@ -682,6 +682,10 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
     updateNodes(nodes.map(n => selectedIds.includes(n.id) && n.type === 'section' ? { ...n, color } : n));
   };
 
+  const handleChangeNodeSize = (width: number, height: number) => {
+    updateNodes(nodes.map(n => selectedIds.includes(n.id) ? { ...n, width, height } : n));
+  };
+
   const selectedNodes = nodes.filter(n => selectedIds.includes(n.id));
 
   // Right-click Context Menu State
@@ -1063,6 +1067,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
         onChangePenWidth={handleChangePenWidth}
         onChangeArrowColor={handleChangeArrowColor}
         onChangeSectionColor={handleChangeSectionColor}
+        onChangeNodeSize={handleChangeNodeSize}
         onToggleLock={handleToggleLock}
       />
 

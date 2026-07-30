@@ -23,6 +23,7 @@
     "pdfjs-dist": "^3.11.174",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-virtuoso": "^4.18.11",
     "tesseract.js": "^7.0.0",
     "upscaler": "^1.0.0",
     "uuid": "^14.0.1",

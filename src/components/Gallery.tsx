@@ -1,6 +1,8 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { IconEye, IconMoreHorizontal, IconStarFilled, IconStar, IconUpload, IconImage, IconTrash } from './Icons';
+import React, { useState, useCallback, useRef, useEffect, forwardRef } from 'react';
+import { IconEye, IconMoreHorizontal, IconStarFilled, IconStar, IconUpload, IconImage, IconTrash, IconSparkles, IconFileText, IconFolder, IconArchive } from './Icons';
+import { api } from '../services/api';
 import * as pdfjsLib from 'pdfjs-dist';
+import { Virtuoso, VirtuosoGrid } from 'react-virtuoso';
 
 // Set up pdf.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -26,6 +28,14 @@ export interface Asset {
   archived?: boolean;
   trashed?: boolean;
   folder_id?: string;
+  thumbnail_url?: string;
+  status?: string;
+  document_id?: string;
+  page_number?: number;
+  page_text?: string;
+  is_semantic?: boolean;
+  score?: number;
+  document_title?: string;
 }
 
 export interface Folder {
@@ -72,7 +82,7 @@ const PdfThumbnailCard: React.FC<{ url: string; title: string }> = ({ url, title
     <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1c1c28' }}>
       <canvas ref={canvasRef} style={{ width: '100%', height: '100%', objectFit: 'cover', display: loading ? 'none' : 'block' }} />
       {loading && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading PDF...</div>}
-      {error && <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: 8 }}>📄 {title}</div>}
+      {error && <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><IconFileText size={12} /> {title}</div>}
       <div style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: 'white', fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em', zIndex: 10 }}>
         PDF
       </div>
@@ -251,26 +261,23 @@ export const Gallery: React.FC<GalleryProps> = ({
 
   // Bulk Operations
   const handleBulkFavorite = async () => {
-    const { invoke } = await import('@tauri-apps/api/core');
     for (const id of selectedIds) {
-      await invoke('toggle_favorite', { id });
+      await api.toggleFavorite(id);
     }
     if (onAssetsUpdated) onAssetsUpdated();
   };
 
   const handleBulkArchive = async () => {
-    const { invoke } = await import('@tauri-apps/api/core');
     for (const id of selectedIds) {
-      await invoke('archive_asset', { id, archived: true });
+      await api.archiveAsset(id, true);
     }
     if (onAssetsUpdated) onAssetsUpdated();
   };
 
   const handleBulkTrash = async () => {
     if (window.confirm(`Move ${selectedIds.length} assets to Trash?`)) {
-      const { invoke } = await import('@tauri-apps/api/core');
       for (const id of selectedIds) {
-        await invoke('trash_asset', { id, trashed: true });
+        await api.trashAsset(id, true);
       }
       setSelectedIds([]);
       if (onAssetsUpdated) onAssetsUpdated();
@@ -280,13 +287,25 @@ export const Gallery: React.FC<GalleryProps> = ({
   const handleBulkAddTag = async () => {
     const tagName = prompt(`Enter tag name to add to ${selectedIds.length} assets:`);
     if (tagName && tagName.trim()) {
-      const { invoke } = await import('@tauri-apps/api/core');
       for (const id of selectedIds) {
-        await invoke('add_tag_to_asset', { assetId: id, tagName: tagName.trim() });
+        await api.addTag(id, tagName.trim());
       }
       if (onAssetsUpdated) onAssetsUpdated();
     }
   };
+
+  const gridComponents = React.useMemo(() => ({
+    List: forwardRef<HTMLDivElement, any>((props, ref) => (
+      <div
+        {...props}
+        ref={ref}
+        className={`gallery__layout--${viewMode}`}
+      />
+    )),
+    Item: ({ children, ...props }: any) => (
+      <div {...props}>{children}</div>
+    )
+  }), [viewMode]);
 
   if (assets.length === 0) {
     return (
@@ -321,6 +340,13 @@ export const Gallery: React.FC<GalleryProps> = ({
     width: Math.abs(selectionBox.currentX - selectionBox.startX),
     height: Math.abs(selectionBox.currentY - selectionBox.startY)
   } : null;
+
+  const currentFolders = folders.filter(f => (f.parent_id || null) === currentFolderId);
+  const currentAssets = assets.filter(a => (a.folder_id || null) === currentFolderId);
+  const combinedItems = [
+    ...currentFolders.map(f => ({ type: 'folder', data: f })),
+    ...currentAssets.map(a => ({ type: 'asset', data: a }))
+  ];
 
   return (
     <div
@@ -385,7 +411,7 @@ export const Gallery: React.FC<GalleryProps> = ({
           <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
           <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={handleBulkAddTag}>+ Tag</button>
           <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={handleBulkFavorite}>★ Favorite</button>
-          <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={handleBulkArchive}>📁 Archive</button>
+          <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: 4 }} onClick={handleBulkArchive}><IconArchive size={12} /> Archive</button>
           <button className="btn btn--secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-error)' }} onClick={handleBulkTrash}>🗑 Trash</button>
           <button className="toolbar__btn" style={{ fontSize: '11px', padding: '2px 6px' }} onClick={() => setSelectedIds([])}>✕</button>
         </div>
@@ -393,237 +419,295 @@ export const Gallery: React.FC<GalleryProps> = ({
 
       {/* Masonry-style grid or tabular list */}
       {viewMode === 'list' ? (
-        <div className="gallery__layout--list">
-          <div className="gallery__list-header" style={{
-            display: 'grid',
-            gridTemplateColumns: '48px 2fr 1fr 1fr 1.5fr 80px',
-            padding: '8px 16px',
-            fontSize: 'var(--font-size-xs)',
-            color: 'var(--text-muted)',
-            fontWeight: 600,
-            borderBottom: '1px solid var(--border-subtle)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em'
-          }}>
-            <span>Preview</span>
-            <span>Name</span>
-            <span>Dimensions</span>
-            <span>Size</span>
-            <span>Tags</span>
-            <span style={{ textAlign: 'right' }}>Actions</span>
-          </div>
+        <Virtuoso
+          style={{ flex: 1 }}
+          data={combinedItems}
+          computeItemKey={(_index, item) => item.type === 'folder' ? `folder-${(item.data as Folder).id}` : `asset-${(item.data as Asset).id}`}
+          itemContent={(_index, item) => {
+            if (item.type === 'folder') {
+              const folder = item.data as Folder;
+              return (
+                <div
+                  key={folder.id}
+                  className="gallery__list-row"
+                  onDoubleClick={() => onNavigateFolder && onNavigateFolder(folder.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><IconFolder size={24} /></div>
+                  <div className="text-truncate" style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{folder.name}</div>
+                  <div>--</div>
+                  <div>--</div>
+                  <div>--</div>
+                  <div></div>
+                </div>
+              );
+            } else {
+              const asset = item.data as Asset;
+              const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
+              return (
+                <div
+                  key={asset.id}
+                  data-asset-id={asset.id}
+                  className={`gallery__list-row ${isSelected ? 'gallery__card--selected' : ''}`}
+                  onClick={(e) => handleCardClick(e, asset)}
+                  onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelectAsset(asset);
+                    setContextMenu({ x: e.clientX, y: e.clientY, asset });
+                  }}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, asset)}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '48px 2fr 1fr 1fr 1.5fr 80px',
+                    alignItems: 'center',
+                    padding: '8px 16px',
+                    background: isSelected ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
+                    border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    marginBottom: 6,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div style={{ width: 36, height: 36, borderRadius: 4, overflow: 'hidden', background: 'var(--bg-base)' }}>
+                    <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                  <div style={{ fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {showImageNames ? asset.title : '••••••••'}
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{asset.filename}</div>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{asset.width} × {asset.height}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{asset.size}</div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {(asset.tags || []).slice(0, 3).map((t) => (
+                      <span key={t} className="tag" style={{ fontSize: '9px', padding: '1px 5px' }}>{t}</span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                    <button 
+                      className="gallery__card-action" 
+                      title="Preview"
+                      onClick={(e) => { e.stopPropagation(); onPreviewAsset && onPreviewAsset(asset); }}
+                      style={{ position: 'static', opacity: 1 }}
+                    >
+                      <IconEye size={13} />
+                    </button>
+                    <button
+                      className="gallery__card-action"
+                      onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id); }}
+                      title={asset.favorite ? 'Remove favorite' : 'Favorite'}
+                      style={{ position: 'static', opacity: 1, color: asset.favorite ? '#f06b8e' : 'inherit' }}
+                    >
+                      {asset.favorite ? <IconStarFilled size={13} /> : <IconStar size={13} />}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+          }}
+        />
+      ) : (
+        <VirtuosoGrid
+          style={{ flex: 1 }}
+          data={combinedItems}
+          computeItemKey={(_index, item) => item.type === 'folder' ? `folder-${(item.data as Folder).id}` : `asset-${(item.data as Asset).id}`}
+          components={gridComponents}
+          itemContent={(_index, item) => {
+            if (item.type === 'folder') {
+              const folder = item.data as Folder;
+              return (
+                <div
+                  key={folder.id}
+                  className="gallery__card gallery__card--folder"
+                  onDoubleClick={() => onNavigateFolder && onNavigateFolder(folder.id)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', padding: 16,
+                    cursor: 'pointer', border: '1px solid var(--border-subtle)', aspectRatio: '1/1',
+                    transition: 'all 0.2s', userSelect: 'none'
+                  }}
+                >
+                  <div style={{ marginBottom: 12, color: 'var(--accent-primary)', opacity: 0.8 }}><IconFolder size={40} /></div>
+                  <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)', textAlign: 'center', fontWeight: 500 }}>
+                    {folder.name}
+                  </div>
+                </div>
+              );
+            } else {
+              const asset = item.data as Asset;
+              const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
+              const isPdf = (asset.type && asset.type.toLowerCase().includes('pdf')) || asset.filename.toLowerCase().endsWith('.pdf');
+              const aspectRatio = (asset.width && asset.height) ? `${asset.width} / ${asset.height}` : '4/3';
 
-          {folders.filter(f => (f.parent_id || null) === currentFolderId).map(folder => (
-            <div
-              key={folder.id}
-              className="gallery__list-row"
-              onDoubleClick={() => onNavigateFolder && onNavigateFolder(folder.id)}
-              style={{ cursor: 'pointer' }}
-            >
-              <div style={{ fontSize: 24, textAlign: 'center' }}>📁</div>
-              <div className="text-truncate" style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{folder.name}</div>
-              <div>--</div>
-              <div>--</div>
-              <div>--</div>
-              <div></div>
-            </div>
-          ))}
-
-          {assets.filter(a => (a.folder_id || null) === currentFolderId).map((asset) => {
-            const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
-            return (
-              <div
-                key={asset.id}
-                data-asset-id={asset.id}
-                className={`gallery__list-row ${isSelected ? 'gallery__card--selected' : ''}`}
-                onClick={(e) => handleCardClick(e, asset)}
-                onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onSelectAsset(asset);
-                  setContextMenu({ x: e.clientX, y: e.clientY, asset });
-                }}
-                draggable
-                onDragStart={(e) => handleDragStart(e, asset)}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '48px 2fr 1fr 1fr 1.5fr 80px',
-                  alignItems: 'center',
-                  padding: '8px 16px',
-                  background: isSelected ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                  border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-md)',
-                  marginBottom: 6,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <div style={{ width: 36, height: 36, borderRadius: 4, overflow: 'hidden', background: 'var(--bg-base)' }}>
-                  <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-                <div style={{ fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {showImageNames ? asset.title : '••••••••'}
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{asset.filename}</div>
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{asset.width} × {asset.height}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{asset.size}</div>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {(asset.tags || []).slice(0, 3).map(t => (
-                    <span key={t} className="tag" style={{ fontSize: '9px', padding: '1px 5px' }}>{t}</span>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                  <button 
-                    className="gallery__card-action" 
-                    title="Preview"
-                    onClick={(e) => { e.stopPropagation(); onPreviewAsset && onPreviewAsset(asset); }}
-                    style={{ position: 'static', opacity: 1 }}
+              return (
+                <div
+                  key={asset.id}
+                  data-asset-id={asset.id}
+                  className={`gallery__card ${isSelected ? 'gallery__card--selected' : ''}`}
+                  onClick={(e) => handleCardClick(e, asset)}
+                  onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelectAsset(asset);
+                    setContextMenu({ x: e.clientX, y: e.clientY, asset });
+                  }}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, asset)}
+                >
+                  <div
+                    className="gallery__card-image"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      aspectRatio,
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}
                   >
-                    <IconEye size={13} />
-                  </button>
+                    {isPdf ? (
+                      asset.thumbnail_url ? (
+                        <>
+                          <img 
+                            src={asset.thumbnail_url} 
+                            alt={asset.title} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                            draggable={false}
+                          />
+                          <div style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', color: 'white', fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em', zIndex: 10 }}>
+                            PDF
+                          </div>
+                        </>
+                      ) : (
+                        <PdfThumbnailCard url={asset.url} title={asset.title} />
+                      )
+                    ) : (
+                      <img 
+                        src={asset.url} 
+                        alt={asset.title} 
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                        draggable={false}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    )}
+                    {asset.is_semantic && (
+                      <div style={{
+                        position: 'absolute', top: 6, left: 6,
+                        background: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)',
+                        color: 'white', fontSize: '9px', fontWeight: 700,
+                        padding: '2px 7px', borderRadius: 4, letterSpacing: '0.04em',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)', zIndex: 12,
+                        display: 'flex', alignItems: 'center', gap: 4
+                      }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconSparkles size={10} /> Semantic</span>
+                      </div>
+                    )}
+                    {asset.status && asset.status !== 'indexed' && (
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        background: 'rgba(0,0,0,0.6)',
+                        display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', justifyContent: 'center',
+                        color: 'white', zIndex: 20,
+                        backdropFilter: 'blur(2px)'
+                      }}>
+                        <div style={{
+                          width: 24, height: 24,
+                          border: '2px solid rgba(255,255,255,0.3)',
+                          borderTopColor: 'white', borderRadius: '50%',
+                          animation: 'spin 1s linear infinite',
+                          marginBottom: 8
+                        }} />
+                        <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                          {asset.status}
+                        </div>
+                        {asset.page_number && (
+                          <div style={{ fontSize: '9px', opacity: 0.8, marginTop: 4 }}>
+                            Page {asset.page_number}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {(asset.document_title || asset.page_number) && !asset.status && (
+                      <div style={{
+                        position: 'absolute', bottom: 6, left: 6, right: 6,
+                        background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
+                        color: '#e2e8f0', fontSize: '10px', fontWeight: 500,
+                        padding: '3px 6px', borderRadius: 4, zIndex: 11,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                      }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <IconFileText size={10} /> {asset.document_title || 'Document'} {asset.page_number ? `• Pg ${asset.page_number}` : ''}
+                        </span>
+                      </div>
+                    )}
+                    {showImageNames && (
+                      <div style={{
+                        position: 'absolute',
+                        bottom: 8,
+                        left: 8,
+                        right: 8,
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 600,
+                        color: 'white',
+                        textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                        opacity: 0.8,
+                      }}>
+                        {asset.title}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="gallery__card-overlay">
+                    <div 
+                      className="gallery-item__image-wrapper"
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, asset)}
+                    >{showImageNames ? asset.filename : ''}</div>
+                    <div className="gallery__card-meta">{asset.width}×{asset.height} · {asset.size}</div>
+                  </div>
+
+                  <div className="gallery__card-actions">
+                    <button 
+                      className="gallery__card-action" 
+                      title="Preview"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onPreviewAsset) onPreviewAsset(asset);
+                      }}
+                    >
+                      <IconEye size={13} />
+                    </button>
+                    <button 
+                      className="gallery__card-action" 
+                      title="More Details"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectAsset(asset);
+                      }}
+                    >
+                      <IconMoreHorizontal size={13} />
+                    </button>
+                  </div>
+
                   <button
-                    className="gallery__card-action"
+                    className={`gallery__card-action gallery__card-favorite ${asset.favorite ? 'gallery__card-favorite--active' : ''}`}
                     onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id); }}
-                    title={asset.favorite ? 'Remove favorite' : 'Favorite'}
-                    style={{ position: 'static', opacity: 1, color: asset.favorite ? '#f06b8e' : 'inherit' }}
+                    title={asset.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                    style={asset.favorite ? { color: '#f06b8e' } : {}}
                   >
                     {asset.favorite ? <IconStarFilled size={13} /> : <IconStar size={13} />}
                   </button>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className={`gallery__layout--${viewMode}`}>
-          {/* Folders */}
-          {folders.filter(f => (f.parent_id || null) === currentFolderId).map(folder => (
-            <div
-              key={folder.id}
-              className="gallery__card gallery__card--folder"
-              onDoubleClick={() => onNavigateFolder && onNavigateFolder(folder.id)}
-              style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', padding: 16,
-                cursor: 'pointer', border: '1px solid var(--border-subtle)', aspectRatio: '1/1',
-                transition: 'all 0.2s', userSelect: 'none'
-              }}
-            >
-              <div style={{ fontSize: 48, marginBottom: 12 }}>📁</div>
-              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)', textAlign: 'center', fontWeight: 500 }}>
-                {folder.name}
-              </div>
-            </div>
-          ))}
-
-          {/* Assets */}
-          {assets.filter(a => (a.folder_id || null) === currentFolderId).map((asset) => {
-            const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
-            const isPdf = (asset.type && asset.type.toLowerCase().includes('pdf')) || asset.filename.toLowerCase().endsWith('.pdf');
-            const aspectRatio = (asset.width && asset.height) ? `${asset.width} / ${asset.height}` : '4/3';
-
-            return (
-              <div
-                key={asset.id}
-                data-asset-id={asset.id}
-                className={`gallery__card ${isSelected ? 'gallery__card--selected' : ''}`}
-                onClick={(e) => handleCardClick(e, asset)}
-                onDoubleClick={() => onPreviewAsset && onPreviewAsset(asset)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onSelectAsset(asset);
-                  setContextMenu({ x: e.clientX, y: e.clientY, asset });
-                }}
-                draggable
-                onDragStart={(e) => handleDragStart(e, asset)}
-              >
-                <div
-                  className="gallery__card-image"
-                  style={{
-                    background: 'var(--bg-secondary)',
-                    aspectRatio,
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {isPdf ? (
-                    <PdfThumbnailCard url={asset.url} title={asset.title} />
-                  ) : (
-                    <img 
-                      src={asset.url} 
-                      alt={asset.title} 
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                      draggable={false}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  )}
-                  {showImageNames && (
-                    <div style={{
-                      position: 'absolute',
-                      bottom: 8,
-                      left: 8,
-                      right: 8,
-                      fontSize: 'var(--font-size-xs)',
-                      fontWeight: 600,
-                      color: 'white',
-                      textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-                      opacity: 0.8,
-                    }}>
-                      {asset.title}
-                    </div>
-                  )}
-                </div>
-
-                <div className="gallery__card-overlay">
-                  <div 
-                    className="gallery-item__image-wrapper"
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, asset)}
-                  >{showImageNames ? asset.filename : ''}</div>
-                  <div className="gallery__card-meta">{asset.width}×{asset.height} · {asset.size}</div>
-                </div>
-
-                <div className="gallery__card-actions">
-                  <button 
-                    className="gallery__card-action" 
-                    title="Preview"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (onPreviewAsset) onPreviewAsset(asset);
-                    }}
-                  >
-                    <IconEye size={13} />
-                  </button>
-                  <button 
-                    className="gallery__card-action" 
-                    title="More Details"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectAsset(asset);
-                    }}
-                  >
-                    <IconMoreHorizontal size={13} />
-                  </button>
-                </div>
-
-                <button
-                  className={`gallery__card-action gallery__card-favorite ${asset.favorite ? 'gallery__card-favorite--active' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); onToggleFavorite(asset.id); }}
-                  title={asset.favorite ? 'Remove from favorites' : 'Add to favorites'}
-                  style={asset.favorite ? { color: '#f06b8e' } : {}}
-                >
-                  {asset.favorite ? <IconStarFilled size={13} /> : <IconStar size={13} />}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+              );
+            }
+          }}
+        />
       )}
-
       {/* Right-click Context Menu */}
       {contextMenu && (
         <div
@@ -667,14 +751,13 @@ export const Gallery: React.FC<GalleryProps> = ({
                 onClick={async () => {
                   const name = prompt('New folder name:');
                   if (name && name.trim()) {
-                    const { invoke } = await import('@tauri-apps/api/core');
-                    await invoke('create_folder', { name: name.trim(), parentId: currentFolderId });
+                    await api.createFolder(name.trim(), currentFolderId);
                     onAssetsUpdated?.();
                   }
                   setContextMenu(null);
                 }}
               >
-                📁 Create Folder...
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><IconFolder size={12} /> Create Folder...</span>
               </button>
             </>
           ) : contextMenu.asset ? (
@@ -711,9 +794,8 @@ export const Gallery: React.FC<GalleryProps> = ({
                 onClick={async () => {
                   const name = prompt('New title for asset:', contextMenu.asset!.title);
                   if (name && name.trim()) {
-                    const { invoke } = await import('@tauri-apps/api/core');
                     const ext = contextMenu.asset!.filename.includes('.') ? '.' + contextMenu.asset!.filename.split('.').pop() : '';
-                    await invoke('rename_asset', { id: contextMenu.asset!.id, newTitle: name.trim(), newFilename: name.trim() + ext });
+                    await api.renameAsset(contextMenu.asset!.id, name.trim(), name.trim() + ext);
                     onAssetsUpdated?.();
                   }
                   setContextMenu(null);
@@ -739,8 +821,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                 className="btn btn--secondary"
                 style={{ justifyContent: 'flex-start', padding: '6px 10px', fontSize: '12px', color: '#f06b8e', borderColor: 'rgba(240, 107, 142, 0.3)', display: 'flex', alignItems: 'center', gap: 8 }}
                 onClick={async () => {
-                  const { invoke } = await import('@tauri-apps/api/core');
-                  await invoke('trash_asset', { id: contextMenu.asset!.id, trashed: true });
+                  await api.trashAsset(contextMenu.asset!.id, true);
                   onAssetsUpdated?.();
                   setContextMenu(null);
                 }}

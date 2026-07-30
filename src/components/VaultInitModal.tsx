@@ -163,7 +163,7 @@ export const VaultInitModal: React.FC<VaultInitModalProps> = ({
                 <div style={{ fontWeight: 600, color: '#ffffff', marginBottom: 2 }}>
                   Update & Re-index Database Schema
                 </div>
-                If opening an older vault or folder with existing files, enable this to update the DB schema. Existing media files in <code>artgrid/media</code> will be preserved and scanned into the pipeline.
+                If opening an older vault or folder with existing files, enable this to update the DB schema. Existing media files in <code>xios/media</code> will be preserved and scanned into the pipeline.
               </div>
             </label>
           </div>

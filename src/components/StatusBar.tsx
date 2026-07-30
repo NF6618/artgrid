@@ -5,6 +5,7 @@ interface StatusBarProps {
   selectedCount: number;
   viewMode: string;
   zoomLevel?: number;
+  isRefreshing?: boolean;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -12,12 +13,20 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   selectedCount,
   viewMode,
   zoomLevel = 100,
+  isRefreshing = false,
 }) => {
   return (
     <div className="statusbar">
-      <div className="statusbar__item">
-        <div className="statusbar__dot" />
-        <span>Ready</span>
+      <div className="statusbar__item" style={{ color: isRefreshing ? 'var(--accent-primary)' : 'inherit' }}>
+        {isRefreshing ? (
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%', border: '2px solid var(--accent-primary)',
+            borderTopColor: 'transparent', animation: 'spin 1s linear infinite', marginRight: 6
+          }} />
+        ) : (
+          <div className="statusbar__dot" />
+        )}
+        <span>{isRefreshing ? 'Refreshing Library...' : 'Ready'}</span>
       </div>
       <div className="statusbar__item">
         <span>{itemCount.toLocaleString()} items</span>

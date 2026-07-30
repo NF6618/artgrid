@@ -14,6 +14,8 @@ mod board;
 mod metadata;
 mod ai;
 mod folders;
+pub mod importers;
+mod search;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -88,9 +90,9 @@ pub fn run() {
             metadata::remove_asset_from_collection,
             ai::pipeline::ai_remove_background,
             ai::pipeline::ai_upscale_image,
-            ai::pipeline::ai_extract_text,
             folders::get_folders,
-            folders::create_folder
+            folders::create_folder,
+            search::search_assets
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -48,6 +48,22 @@ pub struct AssetData {
     pub palette: Option<Vec<String>>,
     pub color_profile: Option<String>,
     pub folder_id: Option<String>,
+    pub thumbnail_url: Option<String>,
+}
+
+fn generate_pdf_thumbnail(pdf_path: &PathBuf, out_path: &PathBuf) -> Result<(), String> {
+    use pdfium_render::prelude::*;
+    let bind = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+        .or_else(|_| Pdfium::bind_to_system_library())
+        .map_err(|e| format!("Failed to bind PDFium: {}", e))?;
+    
+    let pdfium = Pdfium::new(bind);
+    let document = pdfium.load_pdf_from_file(pdf_path, None).map_err(|e| e.to_string())?;
+    let page = document.pages().get(0).map_err(|e| e.to_string())?;
+    let bitmap = page.render_with_config(&PdfRenderConfig::new().set_target_width(800)).map_err(|e| e.to_string())?;
+    let image = bitmap.as_image().map_err(|e| e.to_string())?;
+    image.save(out_path).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn extract_color_palette(path: &PathBuf) -> (Option<Vec<String>>, Option<String>) {
@@ -55,7 +71,6 @@ fn extract_color_palette(path: &PathBuf) -> (Option<Vec<String>>, Option<String>
         let resized = img.thumbnail(64, 64);
         let rgb_img = resized.to_rgb8();
         let pixels = rgb_img.pixels();
-        
         let mut color_counts: std::collections::HashMap<(u8, u8, u8), u32> = std::collections::HashMap::new();
         for p in pixels {
             let r = (p[0] / 32) * 32 + 16;
@@ -189,7 +204,8 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
             a.id, a.title, a.filename, a.filepath, a.type, a.size, a.width, a.height, a.favorite, a.date_added, a.url, a.notes, a.archived, a.trashed, a.palette, a.color_profile,
             (SELECT GROUP_CONCAT(t.name) FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id) as tags,
             (SELECT GROUP_CONCAT(ac.collection_id) FROM asset_collections ac WHERE ac.asset_id = a.id) as collections,
-            a.folder_id
+            a.folder_id,
+            a.thumbnail_url
         FROM assets a
     ").map_err(|e| e.to_string())?;
     
@@ -214,6 +230,17 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
         let cols_str: Option<String> = row.get(17)?;
         let collections = cols_str.map(|s| s.split(',').map(|t| t.to_string()).collect()).unwrap_or_default();
         let folder_id: Option<String> = row.get(18)?;
+        
+        let raw_thumb_url: Option<String> = row.get(19)?;
+        let thumbnail_url = raw_thumb_url.map(|raw| {
+            if PathBuf::from(&raw).is_absolute() && PathBuf::from(&raw).exists() {
+                raw
+            } else if let Some(ref vp) = vault_path {
+                vp.join(&raw).to_string_lossy().into_owned()
+            } else {
+                raw
+            }
+        });
 
         Ok(AssetData {
             id: row.get(0)?,
@@ -235,6 +262,7 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
             tags,
             collections,
             folder_id,
+            thumbnail_url,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -247,12 +275,14 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
 }
 
 #[tauri::command]
-pub fn import_file(file_path: String, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<AssetData, String> {
-    let db_lock = state.db.lock().unwrap();
-    let conn = db_lock.as_ref().ok_or("No vault opened")?;
-    
-    let vault_lock = state.vault_path.lock().unwrap();
-    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+pub async fn import_file(file_path: String, app: tauri::AppHandle) -> Result<AssetData, String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db_lock = state.db.lock().unwrap();
+        let conn = db_lock.as_ref().ok_or("No vault opened")?;
+        
+        let vault_lock = state.vault_path.lock().unwrap();
+        let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
     
     let source_path = PathBuf::from(&file_path);
     if !source_path.exists() {
@@ -285,6 +315,15 @@ pub fn import_file(file_path: String, state: State<'_, AppState>, app: tauri::Ap
     let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
     let (palette, color_profile) = extract_color_palette(&dest_abs_path);
     let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
+    
+    let mut thumbnail_url = None;
+    if ext == "pdf" {
+        let thumb_filename = format!("{}_thumb.jpg", id);
+        let thumb_rel_path = PathBuf::from("artgrid").join("media").join(&thumb_filename);
+        let thumb_abs_path = vault_path.join(&thumb_rel_path);
+        let _ = generate_pdf_thumbnail(&dest_abs_path, &thumb_abs_path);
+        thumbnail_url = Some(thumb_rel_path.to_string_lossy().into_owned());
+    }
     
     // Get file size
     let metadata = fs::metadata(&dest_abs_path).map_err(|e| e.to_string())?;
@@ -321,12 +360,13 @@ pub fn import_file(file_path: String, state: State<'_, AppState>, app: tauri::Ap
         tags: vec![],
         collections: vec![],
         folder_id: None,
+        thumbnail_url,
     };
     
     // Insert into DB
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id, thumbnail_url) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         (
             &asset.id,
             &asset.title,
@@ -342,16 +382,18 @@ pub fn import_file(file_path: String, state: State<'_, AppState>, app: tauri::Ap
             &palette_json,
             &color_profile,
             &asset.folder_id,
+            &asset.thumbnail_url,
         ),
     ).map_err(|e| e.to_string())?;
 
     if let Some(pipeline) = app.try_state::<crate::ai::pipeline::AiPipeline>() {
-        pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { asset_id: asset.id.clone() });
+        pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { document_id: asset.id.clone() });
     }
     use tauri::Emitter;
     app.emit("vault-updated", ()).ok();
     
     Ok(asset)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -381,15 +423,17 @@ pub fn toggle_favorite(id: String, state: State<'_, AppState>, app: AppHandle) -
 }
 
 #[tauri::command]
-pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetData, String> {
-    let db_lock = state.db.lock().unwrap();
-    let conn = db_lock.as_ref().ok_or("No vault opened")?;
-    
-    let vault_lock = state.vault_path.lock().unwrap();
-    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+pub async fn import_from_url(url: String, app: tauri::AppHandle) -> Result<AssetData, String> {
+    let response = reqwest::get(&url).await.map_err(|e| format!("Failed to download: {}", e))?;
+    let bytes = response.bytes().await.map_err(|e| format!("Failed to read bytes: {}", e))?;
 
-    let response = reqwest::blocking::get(&url).map_err(|e| format!("Failed to download: {}", e))?;
-    let bytes = response.bytes().map_err(|e| format!("Failed to read bytes: {}", e))?;
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db_lock = state.db.lock().unwrap();
+        let conn = db_lock.as_ref().ok_or("No vault opened")?;
+        
+        let vault_lock = state.vault_path.lock().unwrap();
+        let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
 
     let id = Uuid::new_v4().to_string();
     
@@ -442,11 +486,12 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
         tags: vec![],
         collections: vec![],
         folder_id: None,
+        thumbnail_url: None,
     };
     
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id, thumbnail_url) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL, NULL)",
         (
             &asset.id,
             &asset.title,
@@ -468,15 +513,18 @@ pub fn import_from_url(url: String, state: State<'_, AppState>) -> Result<AssetD
     ).map_err(|e| e.to_string())?;
     
     Ok(asset)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn save_base64_image_asset(title: String, base64_data: String, state: State<'_, AppState>, app: AppHandle) -> Result<AssetData, String> {
-    let db_lock = state.db.lock().unwrap();
-    let conn = db_lock.as_ref().ok_or("No vault opened")?;
-    
-    let vault_lock = state.vault_path.lock().unwrap();
-    let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
+pub async fn save_base64_image_asset(title: String, base64_data: String, app: tauri::AppHandle) -> Result<AssetData, String> {
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db_lock = state.db.lock().unwrap();
+        let conn = db_lock.as_ref().ok_or("No vault opened")?;
+        
+        let vault_lock = state.vault_path.lock().unwrap();
+        let vault_path = vault_lock.as_ref().ok_or("No vault path")?;
 
     let raw_b64 = if let Some(pos) = base64_data.find(',') {
         &base64_data[pos + 1..]
@@ -531,11 +579,12 @@ pub fn save_base64_image_asset(title: String, base64_data: String, state: State<
         tags: vec![],
         collections: vec![],
         folder_id: None,
+        thumbnail_url: None,
     };
 
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id, thumbnail_url) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL, NULL)",
         (
             &asset.id,
             &asset.title,
@@ -560,6 +609,7 @@ pub fn save_base64_image_asset(title: String, base64_data: String, state: State<
     app.emit("vault-updated", ()).ok();
 
     Ok(asset)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -610,11 +660,12 @@ pub fn save_text_asset(title: String, text_content: String, state: State<'_, App
         tags: vec![],
         collections: vec![],
         folder_id: None,
+        thumbnail_url: None,
     };
 
     conn.execute(
-        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL)",
+        "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, notes, archived, trashed, palette, color_profile, folder_id, thumbnail_url) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL, NULL)",
         (
             &asset.id,
             &asset.title,
@@ -975,22 +1026,12 @@ pub async fn import_batch_files(
             percent,
         }).ok();
 
-        // Perform import logic safely inside a block to drop mutex guards before await
-        let asset_id_to_process = {
-            let db_lock = state.db.lock().unwrap();
-            let conn = match db_lock.as_ref() {
-                Some(c) => c,
-                None => {
-                    return Err("No vault opened".to_string());
-                }
-            };
-
+        // Phase 1: Determine paths and transfer file (No DB lock needed)
+        let (id, new_filename, dest_rel_path, dest_abs_path) = {
             let vault_lock = state.vault_path.lock().unwrap();
             let vault_path = match vault_lock.as_ref() {
-                Some(p) => p,
-                None => {
-                    return Err("No vault path".to_string());
-                }
+                Some(p) => p.clone(),
+                None => return Err("No vault path".to_string()),
             };
 
             let id = Uuid::new_v4().to_string();
@@ -1003,46 +1044,64 @@ pub async fn import_batch_files(
                     let _ = fs::create_dir_all(parent);
                 }
             }
+            (id, new_filename, dest_rel_path, dest_abs_path)
+        };
 
-            // Transfer file: Move (rename or copy+remove) vs Copy
-            let file_transferred = if move_files {
-                if fs::rename(&source_path, &dest_abs_path).is_ok() {
+        // Transfer file: Move (rename or copy+remove) vs Copy
+        let file_transferred = if move_files {
+            if fs::rename(&source_path, &dest_abs_path).is_ok() {
+                true
+            } else {
+                if fs::copy(&source_path, &dest_abs_path).is_ok() {
+                    let _ = fs::remove_file(&source_path);
                     true
                 } else {
-                    // Fallback for cross-partition moves
-                    if fs::copy(&source_path, &dest_abs_path).is_ok() {
-                        let _ = fs::remove_file(&source_path);
-                        true
-                    } else {
-                        false
-                    }
+                    false
                 }
-            } else {
-                fs::copy(&source_path, &dest_abs_path).is_ok()
-            };
-
-            if !file_transferred {
-                failed_count += 1;
-                errors.push(format!("Failed to transfer: {}", filename));
-                continue;
             }
+        } else {
+            fs::copy(&source_path, &dest_abs_path).is_ok()
+        };
 
-            let (width, height) = image::image_dimensions(&dest_abs_path).unwrap_or((0, 0));
-            let (palette, color_profile) = extract_color_palette(&dest_abs_path);
-            let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
-            let metadata = fs::metadata(&dest_abs_path).ok();
-            let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
-            let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
-            let now = Utc::now().to_rfc3339();
-            let url = dest_abs_path.to_string_lossy().into_owned();
+        if !file_transferred {
+            failed_count += 1;
+            errors.push(format!("Failed to transfer: {}", filename));
+            continue;
+        }
 
-            let type_ = match ext.as_str() {
-                "md" | "txt" => "text/plain".to_string(),
-                "pdf" => "application/pdf".to_string(),
-                "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
-                _ => format!("image/{}", ext)
+        // Phase 2: Async heavy lifting (spawn_blocking)
+        let dest_abs_path_clone = dest_abs_path.clone();
+        let (width, height, palette, color_profile) = match tokio::task::spawn_blocking(move || {
+            let (w, h) = image::image_dimensions(&dest_abs_path_clone).unwrap_or((0, 0));
+            let (p, cp) = extract_color_palette(&dest_abs_path_clone);
+            (w, h, p, cp)
+        }).await {
+            Ok(res) => res,
+            Err(_) => (0, 0, None, None)
+        };
+        
+        let palette_json = palette.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default());
+        let metadata = fs::metadata(&dest_abs_path).ok();
+        let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+        let size_str = format!("{:.1} MB", size_bytes as f64 / 1_048_576.0);
+        let now = Utc::now().to_rfc3339();
+        let url = dest_abs_path.to_string_lossy().into_owned();
+
+        let type_ = match ext.as_str() {
+            "md" | "txt" => "text/plain".to_string(),
+            "pdf" => "application/pdf".to_string(),
+            "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+            _ => format!("image/{}", ext)
+        };
+
+        // Phase 3: Fast DB Insertion (Locking)
+        let asset_id_to_process = {
+            let db_lock = state.db.lock().unwrap();
+            let conn = match db_lock.as_ref() {
+                Some(c) => c,
+                None => return Err("No vault opened".to_string()),
             };
-
+            
             let insert_res = conn.execute(
                 "INSERT INTO assets (id, title, filename, filepath, type, size, width, height, favorite, date_added, url, palette, color_profile, folder_id) 
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?13)",
@@ -1064,7 +1123,7 @@ pub async fn import_batch_files(
 
         if let Some(id) = asset_id_to_process {
             if let Some(pipeline) = app.try_state::<crate::ai::pipeline::AiPipeline>() {
-                pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { asset_id: id });
+                pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { document_id: id });
             }
         }
 

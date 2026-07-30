@@ -5,36 +5,47 @@ use std::fs;
 pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
 
+    // ── Core asset table ─────────────────────────────────────────────────────
     conn.execute(
         "CREATE TABLE IF NOT EXISTS assets (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            filepath TEXT NOT NULL,
-            type TEXT NOT NULL,
-            size TEXT NOT NULL,
-            width INTEGER NOT NULL,
-            height INTEGER NOT NULL,
-            favorite BOOLEAN NOT NULL DEFAULT 0,
-            date_added TEXT NOT NULL,
-            url TEXT NOT NULL,
-            notes TEXT,
-            archived BOOLEAN NOT NULL DEFAULT 0,
-            trashed BOOLEAN NOT NULL DEFAULT 0,
-            palette TEXT,
+            id            TEXT    PRIMARY KEY,
+            title         TEXT    NOT NULL,
+            filename      TEXT    NOT NULL,
+            filepath      TEXT    NOT NULL,
+            type          TEXT    NOT NULL,
+            size          TEXT    NOT NULL,
+            width         INTEGER NOT NULL,
+            height        INTEGER NOT NULL,
+            favorite      BOOLEAN NOT NULL DEFAULT 0,
+            date_added    TEXT    NOT NULL,
+            url           TEXT    NOT NULL,
+            notes         TEXT,
+            archived      BOOLEAN NOT NULL DEFAULT 0,
+            trashed       BOOLEAN NOT NULL DEFAULT 0,
+            palette       TEXT,
             color_profile TEXT,
-            folder_id TEXT
+            folder_id     TEXT,
+            thumbnail_url TEXT,
+            document_id   TEXT,
+            page_number   INTEGER,
+            page_text     TEXT,
+            status        TEXT NOT NULL DEFAULT 'indexed'
         )",
         [],
     )?;
 
-    // Migrations for existing databases
+    // Migration guards — errors swallowed intentionally (column already exists)
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN notes TEXT", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN archived BOOLEAN DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN trashed BOOLEAN DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN palette TEXT", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN color_profile TEXT", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN thumbnail_url TEXT", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN document_id TEXT REFERENCES documents(id) ON DELETE CASCADE", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN page_number INTEGER", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN page_text TEXT", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN status TEXT NOT NULL DEFAULT 'indexed'", []);
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS folders (
@@ -97,6 +108,51 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
         )",
         [],
     )?;
+
+    // ── Documents table ───────────────────────────────────────────────────────
+    //
+    // Parent record for every ingested file.
+    //   Standalone image → document with page_count = 1, status = 'indexed'.
+    //   PDF → document with one assets row per page linked via document_id.
+    //
+    // Status lifecycle: pending → extracting → embedding → indexed | failed
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS documents (
+            id         TEXT PRIMARY KEY,
+            title      TEXT NOT NULL,
+            filename   TEXT NOT NULL,
+            filepath   TEXT NOT NULL,
+            type       TEXT NOT NULL,
+            size       TEXT NOT NULL,
+            date_added TEXT NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'pending',
+            page_count INTEGER,
+            error      TEXT
+        )",
+        [],
+    )?;
+
+    // ── Embedding storage ─────────────────────────────────────────────────────
+    //
+    // text_embedding / image_embedding are little-endian f32 BLOBs.
+    // KNN cosine-similarity search runs in Rust over in-memory loaded vectors;
+    // no sqlite-vec extension loading required.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS asset_embeddings (
+            asset_id        TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+            text_embedding  BLOB,
+            image_embedding BLOB,
+            model_version   TEXT NOT NULL DEFAULT 'stub-v1',
+            indexed_at      TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    // Fast lookup: all asset pages for a given document
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_assets_document_id ON assets(document_id)",
+        [],
+    );
 
     Ok(conn)
 }

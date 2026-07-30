@@ -72,7 +72,7 @@ function tauriAppDataDir(identifier) {
   }
 }
 
-const APP_ID   = 'com.artgrid.app';
+const APP_ID   = 'dev.xios.app';
 const APP_DATA = tauriAppDataDir(APP_ID);
 
 // ── Resolve vault path from plugin-store ──────────────────────────────────────

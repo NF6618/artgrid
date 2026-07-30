@@ -154,9 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Sidebar Header with Collapse Toggle */}
       <div className="sidebar__header" style={{ padding: '8px 12px', display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
         {!isCollapsed && (
-          <span style={{ fontWeight: 700, fontSize: '0.85rem', letterSpacing: '0.05em', color: 'var(--text-primary)' }}>
-            ARTGRID
-          </span>
+          <img src="/xios_logo.png" alt="Xios Logo" style={{ height: 40 }} />
         )}
         <button 
           className="toolbar__btn" 

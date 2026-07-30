@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useMetadataStore, Collection } from '../stores/useMetadataStore';
+import { useBoardStore } from '../stores/useBoardStore';
 import { Asset } from './Gallery';
-import { IconClose, IconPlus, IconArchive, IconTrash, IconMaximize, IconPencil } from './Icons';
+import { IconClose, IconPlus, IconArchive, IconTrash, IconMaximize, IconPencil, IconFileText, IconScanText } from './Icons';
 import { invoke } from '@tauri-apps/api/core';
 import { analyzePalette } from '../utils/colorTheory';
 
@@ -14,8 +15,12 @@ interface DetailPanelProps {
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClose, onAssetsUpdated }) => {
   const { addTagToAsset, removeTagFromAsset, collections, createCollection, addAssetToCollection, removeAssetFromCollection } = useMetadataStore();
-  
+  const { activeBoardId, addAssetToBoard } = useBoardStore();
+
+  const [addedSuccess, setAddedSuccess] = useState(false);
+  const [showOcrText, setShowOcrText] = useState(false);
   const [newTag, setNewTag] = useState('');
+
   const [isAddingTag, setIsAddingTag] = useState(false);
 
   // Inline collection creation state
@@ -238,7 +243,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
               textAlign: 'center',
             }}
           >
-            <div style={{ fontSize: '32px' }}>📄</div>
+            <IconFileText size={36} style={{ color: 'var(--accent-primary)', opacity: 0.9 }} />
             <div style={{ fontSize: '12px', fontWeight: 700, color: '#ffffff' }}>
               {asset.title}
             </div>
@@ -320,6 +325,87 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ asset, visible, onClos
             <span className="detail-panel__field-label">Added</span>
             <span className="detail-panel__field-value">{asset.dateAdded}</span>
           </div>
+        </div>
+
+        {/* 1.5. Reference Board Page Pulling & Document Context */}
+        <div className="detail-panel__section">
+          <div className="detail-panel__section-title">Board Integration & Document Context</div>
+          
+          <button
+            className="btn btn--primary"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              background: addedSuccess
+                ? '#10b981'
+                : 'linear-gradient(135deg, var(--accent-primary) 0%, #6366f1 100%)',
+              transition: 'all 0.2s'
+            }}
+            onClick={async () => {
+              if (!activeBoardId) {
+                alert('Please open or select a Reference Board first!');
+                return;
+              }
+              await addAssetToBoard(activeBoardId, asset);
+              setAddedSuccess(true);
+              setTimeout(() => setAddedSuccess(false), 2000);
+            }}
+          >
+            <IconPlus size={14} /> {addedSuccess ? 'Pulled to Board' : 'Add to Active Board'}
+          </button>
+
+          {(asset.document_title || asset.page_number) && (
+            <div style={{ marginTop: 12, background: 'var(--bg-secondary)', padding: 10, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                <IconFileText size={12} /> Parent Document
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: 2 }}>
+                {asset.document_title || asset.title}
+              </div>
+              {asset.page_number && (
+                <div style={{ fontSize: '10px', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                  Page {asset.page_number}
+                </div>
+              )}
+            </div>
+          )}
+
+          {asset.page_text && (
+            <div style={{ marginTop: 10 }}>
+              <button
+                className="btn btn--secondary"
+                style={{ width: '100%', fontSize: '10px', padding: '4px 8px', justifyContent: 'space-between', display: 'flex' }}
+                onClick={() => setShowOcrText(!showOcrText)}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconScanText size={12} /> Extracted OCR Text</span>
+                <span>{showOcrText ? '▲ Hide' : '▼ View'}</span>
+              </button>
+
+              {showOcrText && (
+                <div style={{
+                  marginTop: 6,
+                  maxHeight: 140,
+                  overflowY: 'auto',
+                  background: 'var(--bg-secondary)',
+                  padding: 8,
+                  borderRadius: 4,
+                  fontSize: '10px',
+                  fontFamily: 'monospace',
+                  color: 'var(--text-muted)',
+                  whiteSpace: 'pre-wrap',
+                  border: '1px solid var(--border-subtle)'
+                }}>
+                  {asset.page_text}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 2. Color Theory Palette Breakdown */}

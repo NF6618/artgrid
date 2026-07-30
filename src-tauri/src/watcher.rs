@@ -132,7 +132,8 @@ fn process_new_file(app: &AppHandle, path: PathBuf) {
             println!("ARTGRID: Successfully watched and imported {:?}", new_filename);
             
             if let Some(pipeline) = app.try_state::<crate::ai::pipeline::AiPipeline>() {
-                pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { asset_id: id.clone() });
+                // Queue post-processing
+                pipeline.queue_task_sync(crate::ai::pipeline::AiTask::ProcessImport { document_id: id.clone() });
             }
 
             // Notify frontend

@@ -168,7 +168,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <div>
                         <div style={{ fontWeight: 500 }}>Auto-watch Vault Folder</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically import new files dropped into the vault's artgrid/media folder</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically import new files dropped into the vault's xios/media folder</div>
                       </div>
                     </label>
 
@@ -630,7 +630,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClick={async () => {
                         try {
                           const { save } = await import('@tauri-apps/plugin-dialog');
-                          const dest = await save({ defaultPath: 'artgrid_backup.db', title: 'Export Database Backup' });
+                          const dest = await save({ defaultPath: 'xios_backup.db', title: 'Export Database Backup' });
                           if (dest) {
                             const { invoke } = await import('@tauri-apps/api/core');
                             await invoke('export_db_backup', { destinationPath: dest });

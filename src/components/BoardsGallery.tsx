@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Board } from '../types/board';
 import { IconGrid, IconList, IconPlus, IconTrash, IconBoard, IconSearch } from './Icons';
+import { CreateBoardModal } from './CreateBoardModal';
 
 interface BoardsGalleryProps {
   boards: Board[];
@@ -22,15 +23,14 @@ export const BoardsGallery: React.FC<BoardsGalleryProps> = ({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingText, setRenamingText] = useState('');
 
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
   const filteredBoards = boards.filter(b => 
     b.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleCreateNew = () => {
-    const title = prompt('Enter new board title:', 'New Mood Board');
-    if (title && title.trim()) {
-      onCreateBoard(title.trim());
-    }
+    setIsCreateModalOpen(true);
   };
 
   return (
@@ -297,6 +297,14 @@ export const BoardsGallery: React.FC<BoardsGalleryProps> = ({
           </div>
         )}
       </div>
+
+      <CreateBoardModal 
+        isOpen={isCreateModalOpen} 
+        onClose={() => setIsCreateModalOpen(false)} 
+        onSubmit={(title) => {
+          onCreateBoard(title);
+        }} 
+      />
     </div>
   );
 };

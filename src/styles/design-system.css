@@ -578,26 +578,27 @@ html, body {
 /* === GALLERY VIEW (MASONRY) === */
 .gallery {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: var(--space-3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .gallery__layout--grid {
-  column-count: auto;
-  column-width: 180px;
-  column-gap: var(--space-3);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3);
 }
 
 .gallery__layout--grid .gallery__card {
-  break-inside: avoid;
-  margin-bottom: var(--space-3);
+  margin-bottom: 0;
 }
 
 .gallery__layout--list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding: var(--space-3);
 }
 
 .gallery__layout--list .gallery__card {
@@ -1471,4 +1472,176 @@ html, body {
   background-size: 200px 100%;
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-md);
+}
+
+/* === BOARD LAYOUT === */
+.board-layout {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+}
+
+.media-drawer {
+  transition: width 0.22s var(--ease-out);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  position: relative;
+  z-index: 20;
+  font-family: var(--font-family);
+  overflow: hidden;
+}
+
+.media-drawer__header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.media-drawer__title {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.media-drawer__filters {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  flex-shrink: 0;
+}
+
+.media-drawer__search {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: var(--font-size-xs);
+  outline: none;
+  font-family: var(--font-family);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.media-drawer__filter-row {
+  display: flex;
+  gap: 6px;
+}
+
+.media-drawer__select {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 5px 6px;
+  font-size: var(--font-size-xs);
+  outline: none;
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+
+.media-drawer__count {
+  padding: 6px 14px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.media-drawer__grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-content: start;
+}
+
+.media-drawer__asset {
+  aspect-ratio: 1;
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  cursor: grab;
+  position: relative;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.media-drawer__asset:hover {
+  transform: scale(1.03);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.media-drawer__asset-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.media-drawer__asset-title {
+  position: absolute;
+  inset: auto 0 0 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 100%);
+  padding: 14px 5px 4px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: white;
+  font-family: var(--font-family);
+}
+
+.media-drawer__empty {
+  grid-column: 1 / -1;
+  padding: 24px 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.board-workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+}
+
+.board-workspace__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 30;
+}
+
+.board-workspace__tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.board-workspace__canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
 }

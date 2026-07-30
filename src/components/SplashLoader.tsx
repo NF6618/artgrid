@@ -9,7 +9,7 @@ interface SplashLoaderProps {
 
 export const SplashLoader: React.FC<SplashLoaderProps> = ({
   visible,
-  statusText = 'Initializing ArtGrid Vault...',
+  statusText = 'Initializing Xios Vault...',
   subText = 'Loading media workspace & indexing local assets',
   logs = [],
 }) => {

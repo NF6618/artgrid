@@ -5,7 +5,8 @@ import { Gallery, Asset } from './components/Gallery';
 import { DetailPanel } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { BoardCanvas } from './features/board/components/BoardCanvas';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { api } from './services/api';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 
@@ -15,6 +16,7 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useMetadataStore } from './stores/useMetadataStore';
 import { SettingsModal } from './components/SettingsModal';
 import { FileViewerModal } from './components/FileViewerModal';
+import { IconPencil } from './components/Icons';
 import { ImportVaultModal } from './components/ImportVaultModal';
 import { SplashLoader } from './components/SplashLoader';
 import { ImportProgressModal, ImportProgressData } from './components/ImportProgressModal';
@@ -22,6 +24,8 @@ import { VaultInitModal } from './components/VaultInitModal';
 import { BoardsGallery } from './components/BoardsGallery';
 import { TabBar } from './components/TabBar';
 import { useTabStore, TabType } from './stores/useTabStore';
+import { useAssetFilter } from './hooks/useAssetFilter';
+import { StandaloneLayout } from './components/layouts/StandaloneLayout';
 
 type ViewMode = 'grid' | 'list' | 'board';
 
@@ -49,7 +53,8 @@ const App: React.FC = () => {
   }, [loadSettings]);
 
   // Library state via Tauri
-  const { assets, folders, isLoading, vaultPath, setVaultPath, openVault, createVault, loadVault, scanVaultMedia, importFiles, setAssets, loadAssets } = useLibrary();
+  const { assets, folders, isLoading, isBackgroundRefreshing, vaultPath, setVaultPath, openVault, createVault, loadVault, scanVaultMedia, importFiles, setAssets, loadAssets } = useLibrary();
+
 
   // Listen for real-time import progress from Rust backend
   useEffect(() => {
@@ -94,15 +99,36 @@ const App: React.FC = () => {
   // Data state
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const [previewSourceNodeId, setPreviewSourceNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Handle opening preview asset directly in in-app media viewer
-  const handleOpenPreviewAsset = useCallback((asset: Asset) => {
+  const handleOpenPreviewAsset = useCallback((asset: Asset, sourceNodeId?: string) => {
     setPreviewAsset(asset);
+    setPreviewSourceNodeId(sourceNodeId || null);
+  }, []);
+
+  const handleAssetCreatedFromStudio = useCallback(async (newAsset: Asset, sourceNodeId: string) => {
+    const { boards, activeBoardId, updateBoardNodes } = useBoardStore.getState();
+    const activeBoard = boards.find(b => b.id === activeBoardId);
+    if (!activeBoard) return;
+
+    const updatedNodes = activeBoard.nodes.map(n => {
+      if (n.id === sourceNodeId && n.type === 'image') {
+        return {
+          ...n,
+          src: newAsset.url,
+          assetId: newAsset.id
+        };
+      }
+      return n;
+    });
+
+    await updateBoardNodes(activeBoard.id, updatedNodes);
   }, []);
 
   useEffect(() => {
-    (window as any).__artgridOpenPreviewAsset = (asset: Asset) => handleOpenPreviewAsset(asset);
+    (window as any).__artgridOpenPreviewAsset = (asset: Asset, sourceNodeId?: string) => handleOpenPreviewAsset(asset, sourceNodeId);
   }, [handleOpenPreviewAsset]);
 
   // Check if running in Standalone Window Mode
@@ -136,12 +162,14 @@ const App: React.FC = () => {
   const [standaloneAllAssets, setStandaloneAllAssets] = useState<Asset[]>([]);
   const [standaloneDetailVisible, setStandaloneDetailVisible] = useState(false);
 
+  const [mediaDrawerTab, setMediaDrawerTab] = useState<'library' | 'layers'>('library');
+
   // Standalone window asset loading.
   // The Rust backend's AppState (DB connection) is shared across all windows,
   // so if the main window already opened the vault, get_assets works immediately.
   const loadStandaloneAssets = useCallback(async (retriesLeft = 5) => {
     try {
-      const fetchedAssets: Asset[] = await invoke('get_assets');
+      const fetchedAssets: Asset[] = await api.getAssets();
       const now = Date.now();
       const processed = fetchedAssets.map(a => ({
         ...a,
@@ -170,12 +198,17 @@ const App: React.FC = () => {
     loadStandaloneAssets();
 
     // Listen for cross-window state updates
+    let timeoutId: number | undefined;
     const unlisten = listen('vault-updated', () => {
-      console.log('Vault updated event received in standalone window, reloading assets...');
-      loadStandaloneAssets();
+      console.log('Vault updated event received in standalone window, queuing assets reload...');
+      if (timeoutId) window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        loadStandaloneAssets();
+      }, 500);
     });
 
     return () => {
+      if (timeoutId) window.clearTimeout(timeoutId);
       unlisten.then(f => f());
     };
   }, [isStandaloneWindow, loadStandaloneAssets]);
@@ -202,7 +235,7 @@ const App: React.FC = () => {
              const imageUrl = urlObj.searchParams.get('url');
              if (imageUrl) {
                 console.log("Deep link received, importing from url:", imageUrl);
-                await invoke('import_from_url', { url: imageUrl });
+                await api.importFromUrl(imageUrl);
                 loadAssets();
              }
           }
@@ -245,7 +278,7 @@ const App: React.FC = () => {
       );
 
       // Hit backend
-      await invoke('toggle_favorite', { id });
+      await api.toggleFavorite(id);
     } catch (err) {
       console.error('Failed to toggle favorite:', err);
       // Revert on failure
@@ -276,85 +309,19 @@ const App: React.FC = () => {
   const [sortBy, setSortBy] = useState('date');
 
   // Filter assets by view (Archive/Trash vs Normal)
-  let filteredAssets: Asset[] = assets;
-
-  if (activeView === 'trash') {
-    filteredAssets = filteredAssets.filter((a: Asset) => a.trashed);
-  } else if (activeView === 'archive') {
-    filteredAssets = filteredAssets.filter((a: Asset) => a.archived && !a.trashed);
-  } else {
-    filteredAssets = filteredAssets.filter((a: Asset) => !a.trashed && !a.archived);
-  }
-
-  if (activeCollection) {
-    filteredAssets = filteredAssets.filter(a => a.collections && a.collections.includes(activeCollection));
-  }
-  
-  if (activeTag) {
-    filteredAssets = filteredAssets.filter(a => a.tags && a.tags.includes(activeTag));
-  }
-
-  if (filterType !== 'all') {
-    if (filterType === 'image') filteredAssets = filteredAssets.filter(a => a.type && a.type.startsWith('image/'));
-    else if (filterType === 'pdf') filteredAssets = filteredAssets.filter(a => a.type && (a.type === 'application/pdf' || a.filename.toLowerCase().endsWith('.pdf')));
-    else if (filterType === 'text') filteredAssets = filteredAssets.filter(a => a.type && a.type.startsWith('text/'));
-  }
-
-  if (colorFilter !== 'all') {
-    filteredAssets = filteredAssets.filter(a => {
-      if (!(a as any).color_profile) return false;
-      try {
-        const parsed = JSON.parse((a as any).color_profile);
-        return parsed.temperature === colorFilter;
-      } catch {
-        return false;
-      }
-    });
-  }
-  
-  if (activeView === 'favorites') {
-    filteredAssets = filteredAssets.filter(a => a.favorite);
-  } else if (activeView === 'untagged') {
-    filteredAssets = filteredAssets.filter(a => !a.tags || a.tags.length === 0);
-  } else if (activeView === 'recent') {
-    filteredAssets = [...filteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
-  }
-
-  if (sortBy === 'name') {
-    filteredAssets = [...filteredAssets].sort((a, b) => a.title.localeCompare(b.title));
-  } else if (sortBy === 'size') {
-    filteredAssets = [...filteredAssets].sort((a, b) => (parseFloat(b.size) || 0) - (parseFloat(a.size) || 0));
-  } else if (sortBy === 'dimensions') {
-    filteredAssets = [...filteredAssets].sort((a, b) => (b.width * b.height) - (a.width * a.height));
-  }
-
-  if (searchQuery) {
-    filteredAssets = filteredAssets.filter(a =>
-      a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      a.filename.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }
-
-  // Media Drawer filtering for Boards view
-  let boardFilteredAssets = assets.filter(a => !a.trashed && !a.archived);
-  if (boardSearchQuery) {
-    boardFilteredAssets = boardFilteredAssets.filter(a =>
-      a.title.toLowerCase().includes(boardSearchQuery.toLowerCase()) ||
-      a.filename.toLowerCase().includes(boardSearchQuery.toLowerCase()) ||
-      (a.tags && a.tags.some(t => t.toLowerCase().includes(boardSearchQuery.toLowerCase())))
-    );
-  }
-  if (boardCategoryFilter !== 'all') {
-    boardFilteredAssets = boardFilteredAssets.filter(a => a.collections && a.collections.includes(boardCategoryFilter));
-  }
-  if (boardSortBy === 'title') {
-    boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => a.title.localeCompare(b.title));
-  } else if (boardSortBy === 'size') {
-    boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => (parseFloat(b.size) || 0) - (parseFloat(a.size) || 0));
-  } else {
-    boardFilteredAssets = [...boardFilteredAssets].sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
-  }
+  const { filteredAssets, boardFilteredAssets } = useAssetFilter({
+    assets,
+    activeView,
+    activeCollection,
+    activeTag,
+    filterType,
+    colorFilter,
+    sortBy,
+    searchQuery,
+    boardSearchQuery,
+    boardCategoryFilter,
+    boardSortBy,
+  });
 
   const handleNavViewChange = (newView: TabType) => {
     if (newView === activeView && !activeCollection && !activeTag) return;
@@ -396,57 +363,15 @@ const App: React.FC = () => {
 
   // Standalone Window Mode Render (100% full window studio view)
   if (isStandaloneWindow) {
-    const handleStandaloneSelectAsset = (asset: Asset) => {
-      setStandaloneAsset(asset);
-    };
-
-    const handleStandaloneAssetsUpdated = async () => {
-      await loadStandaloneAssets();
-    };
-
     return (
-      <div style={{ width: '100vw', height: '100vh', background: 'var(--bg-base)', overflow: 'hidden', display: 'flex' }}>
-        {/* Main Viewer Area */}
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          {standaloneAsset ? (
-            <FileViewerModal
-              asset={standaloneAsset}
-              allAssets={standaloneAllAssets}
-              visible={true}
-              isPopOutWindow={false}
-              onClose={async () => {
-                try {
-                  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-                  await getCurrentWindow().close();
-                } catch (e) {
-                  window.close();
-                }
-              }}
-              onSelectAsset={handleStandaloneSelectAsset}
-              onAssetsUpdated={handleStandaloneAssetsUpdated}
-              onToggleDetail={() => setStandaloneDetailVisible(v => !v)}
-              showDetailToggle={true}
-            />
-          ) : (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexDirection: 'column', gap: 12 }}>
-              <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
-              <span>Loading media preview...</span>
-            </div>
-          )}
-        </div>
-
-        {/* Detail Editor Sidebar */}
-        {standaloneDetailVisible && (
-          <div style={{ width: 300, minWidth: 300, height: '100vh', overflow: 'hidden', borderLeft: '1px solid var(--border-subtle)' }}>
-            <DetailPanel
-              asset={standaloneAsset}
-              visible={true}
-              onClose={() => setStandaloneDetailVisible(false)}
-              onAssetsUpdated={handleStandaloneAssetsUpdated}
-            />
-          </div>
-        )}
-      </div>
+      <StandaloneLayout
+        standaloneAsset={standaloneAsset}
+        standaloneAllAssets={standaloneAllAssets}
+        standaloneDetailVisible={standaloneDetailVisible}
+        setStandaloneAsset={setStandaloneAsset}
+        loadStandaloneAssets={loadStandaloneAssets}
+        setStandaloneDetailVisible={setStandaloneDetailVisible}
+      />
     );
   }
 
@@ -518,7 +443,7 @@ const App: React.FC = () => {
             {!vaultPath ? (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
                 <div className="empty-state">
-                  <h2 className="empty-state__title">Welcome to ArtGrid</h2>
+                  <h2 className="empty-state__title">Welcome to Xios</h2>
                   <p className="empty-state__description">
                     Open or create a Vault folder to store your library.
                   </p>
@@ -546,24 +471,31 @@ const App: React.FC = () => {
               />
             ) : activeView === 'boards' ? (
               currentBoardId ? (
-                <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
+                <div className="board-layout">
                   {/* Left: Media Drawer */}
-                  <div style={{
-                    width: isMediaDrawerCollapsed ? 48 : 300,
-                    transition: 'width 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                    borderRight: '1px solid var(--border-subtle)',
-                    display: 'flex', flexDirection: 'column',
-                    background: 'var(--bg-secondary)',
-                    position: 'relative', zIndex: 20,
-                    fontFamily: 'var(--font-family)',
-                    overflow: 'hidden',
-                  }}>
+                  <div
+                    className="media-drawer"
+                    style={{ width: isMediaDrawerCollapsed ? 48 : 300 }}
+                  >
                     {/* Header */}
-                    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                    <div className="media-drawer__header" style={{ padding: '8px 12px' }}>
                       {!isMediaDrawerCollapsed && (
-                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                          Media Library
-                        </span>
+                        <div style={{ display: 'flex', gap: 8, flex: 1 }}>
+                          <button 
+                            className={`btn ${mediaDrawerTab === 'library' ? 'btn--primary' : 'btn--ghost'}`}
+                            onClick={() => setMediaDrawerTab('library')}
+                            style={{ padding: '4px 10px', fontSize: '11px', flex: 1 }}
+                          >
+                            Library
+                          </button>
+                          <button 
+                            className={`btn ${mediaDrawerTab === 'layers' ? 'btn--primary' : 'btn--ghost'}`}
+                            onClick={() => setMediaDrawerTab('layers')}
+                            style={{ padding: '4px 10px', fontSize: '11px', flex: 1 }}
+                          >
+                            Layers
+                          </button>
+                        </div>
                       )}
                       <button
                         className="toolbar__btn"
@@ -575,32 +507,21 @@ const App: React.FC = () => {
                       </button>
                     </div>
 
-                    {!isMediaDrawerCollapsed && (
+                    {!isMediaDrawerCollapsed && mediaDrawerTab === 'library' && (
                       <>
                         {/* Filter / Sort */}
-                        <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-base)', flexShrink: 0 }}>
+                        <div className="media-drawer__filters">
                           <input
-                            placeholder="🔍  Search assets…"
+                            placeholder="Search assets..."
                             value={boardSearchQuery}
                             onChange={e => setBoardSearchQuery(e.target.value)}
-                            style={{
-                              background: 'var(--bg-secondary)',
-                              border: '1px solid var(--border-subtle)',
-                              color: 'var(--text-primary)',
-                              borderRadius: 'var(--radius-sm)',
-                              padding: '7px 10px',
-                              fontSize: 'var(--font-size-xs)',
-                              outline: 'none',
-                              fontFamily: 'var(--font-family)',
-                              width: '100%',
-                              boxSizing: 'border-box',
-                            }}
+                            className="media-drawer__search"
                           />
-                          <div style={{ display: 'flex', gap: 6 }}>
+                          <div className="media-drawer__filter-row">
                             <select
                               value={boardCategoryFilter}
                               onChange={e => setBoardCategoryFilter(e.target.value)}
-                              style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', borderRadius: 'var(--radius-sm)', padding: '5px 6px', fontSize: 'var(--font-size-xs)', outline: 'none', fontFamily: 'var(--font-family)', cursor: 'pointer' }}
+                              className="media-drawer__select"
                             >
                               <option value="all">All Collections</option>
                               {collections.map((c: any) => (
@@ -610,7 +531,7 @@ const App: React.FC = () => {
                             <select
                               value={boardSortBy}
                               onChange={e => setBoardSortBy(e.target.value)}
-                              style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', borderRadius: 'var(--radius-sm)', padding: '5px 6px', fontSize: 'var(--font-size-xs)', outline: 'none', fontFamily: 'var(--font-family)', cursor: 'pointer' }}
+                              className="media-drawer__select"
                             >
                               <option value="date">Date Modified</option>
                               <option value="title">Name A–Z</option>
@@ -620,12 +541,12 @@ const App: React.FC = () => {
                         </div>
 
                         {/* Count */}
-                        <div style={{ padding: '6px 14px', fontSize: '0.7rem', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+                        <div className="media-drawer__count">
                           {boardFilteredAssets.length} asset{boardFilteredAssets.length !== 1 ? 's' : ''}
                         </div>
 
                         {/* Asset grid */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignContent: 'start' }}>
+                        <div className="media-drawer__grid">
                           {boardFilteredAssets.map(asset => (
                             <div
                               key={asset.id}
@@ -638,52 +559,79 @@ const App: React.FC = () => {
                                 e.dataTransfer.effectAllowed = 'copy';
                               }}
                               onDragEnd={() => { (window as any).__artgridDragAsset = null; }}
-                              style={{
-                                aspectRatio: '1',
-                                background: 'var(--bg-base)',
-                                borderRadius: 'var(--radius-md)',
-                                border: '1px solid var(--border-subtle)',
-                                overflow: 'hidden', cursor: 'grab',
-                                position: 'relative',
-                                transition: 'transform 0.12s ease, box-shadow 0.12s ease',
-                              }}
+                              className="media-drawer__asset"
                               onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'; }}
                               onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = ''; }}
                               title={`${asset.title} — drag onto board`}
                             >
-                              <img src={asset.url} alt={asset.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} draggable={false} />
-                              <div style={{
-                                position: 'absolute', inset: 'auto 0 0 0',
-                                background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 100%)',
-                                padding: '14px 5px 4px',
-                                fontSize: '10px', fontWeight: 500,
-                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                color: 'white', fontFamily: 'var(--font-family)',
-                              }}>
+                              <img src={asset.url} alt={asset.title} className="media-drawer__asset-image" draggable={false} />
+                              <div className="media-drawer__asset-title">
                                 {asset.title}
                               </div>
                             </div>
                           ))}
                           {boardFilteredAssets.length === 0 && (
-                            <div style={{ gridColumn: '1 / -1', padding: '24px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                            <div className="media-drawer__empty">
                               No assets match your filters.
                             </div>
                           )}
                         </div>
                       </>
                     )}
+
+                    {!isMediaDrawerCollapsed && mediaDrawerTab === 'layers' && (() => {
+                      const activeBoardNodes = boards.find(b => b.id === currentBoardId)?.nodes || [];
+                      return (
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', fontWeight: 600 }}>
+                            Active Nodes ({activeBoardNodes.length})
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {activeBoardNodes.map((node: any) => (
+                              <div key={node.id} style={{ 
+                                padding: '8px 12px', 
+                                background: 'var(--bg-tertiary)', 
+                                borderRadius: '6px', 
+                                fontSize: '12px', 
+                                display: 'flex', 
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                border: '1px solid var(--border-subtle)'
+                              }}>
+                                <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                                  {node.type.charAt(0).toUpperCase() + node.type.slice(1)} {node.title ? `- ${node.title}` : node.text ? `- ${node.text.slice(0, 15)}...` : ''}
+                                </span>
+                                {node.type === 'image' && node.assetId && (
+                                  <button 
+                                    className="btn btn--secondary" 
+                                    style={{ padding: '2px 8px', fontSize: '10px' }} 
+                                    onClick={() => {
+                                      const ast = assets.find(a => a.id === node.assetId) || standaloneAllAssets.find(a => a.id === node.assetId);
+                                      if (ast && (window as any).__artgridOpenPreviewAsset) {
+                                        (window as any).__artgridOpenPreviewAsset(ast, node.id);
+                                      }
+                                    }}
+                                  >
+                                    <IconPencil size={10} /> Studio Tools
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {activeBoardNodes.length === 0 && (
+                              <div className="media-drawer__empty" style={{ marginTop: 24 }}>
+                                No layers on this board.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Canvas Area */}
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+                  <div className="board-workspace">
                     {/* Canvas Header & Board Tabs */}
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '8px 16px',
-                      background: 'var(--bg-primary)',
-                      borderBottom: '1px solid var(--border-subtle)',
-                      zIndex: 30,
-                    }}>
+                    <div className="board-workspace__header">
                       <button 
                         className="btn btn--secondary" 
                         onClick={() => {
@@ -697,7 +645,7 @@ const App: React.FC = () => {
 
                       <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto' }}>
+                      <div className="board-workspace__tabs">
                         {boards.map(b => (
                           <button
                             key={b.id}
@@ -715,7 +663,7 @@ const App: React.FC = () => {
                     </div>
 
                     {/* Board Canvas Area */}
-                    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                    <div className="board-workspace__canvas">
                       <BoardCanvas />
                     </div>
                   </div>
@@ -781,6 +729,7 @@ const App: React.FC = () => {
         itemCount={filteredAssets.length}
         selectedCount={selectedAsset ? 1 : 0}
         viewMode={viewMode}
+        isRefreshing={isBackgroundRefreshing}
       />
       
       {/* Settings Modal */}
@@ -812,10 +761,10 @@ const App: React.FC = () => {
       {/* Loading Splash Screen */}
       <SplashLoader
         visible={isLoading && !importProgress}
-        statusText="Initializing ArtGrid Vault..."
+        statusText="Initializing Xios Vault..."
         subText="Loading media workspace & indexing local assets"
         logs={[
-          'Connected to ArtGrid SQLite engine',
+          'Connected to Xios SQLite engine',
           'Syncing media gallery & board canvas',
           'Ready!'
         ]}
@@ -841,7 +790,12 @@ const App: React.FC = () => {
         asset={previewAsset}
         allAssets={filteredAssets}
         visible={previewAsset !== null}
-        onClose={() => setPreviewAsset(null)}
+        sourceNodeId={previewSourceNodeId || undefined}
+        onAssetCreatedFromStudio={handleAssetCreatedFromStudio}
+        onClose={() => {
+          setPreviewAsset(null);
+          setPreviewSourceNodeId(null);
+        }}
         onSelectAsset={setPreviewAsset}
         onAssetsUpdated={loadAssets}
       />

@@ -7,4 +7,6 @@ export interface ViewerProps {
   onAssetsUpdated?: () => void;
   // Viewers can expose their specific toolbar controls here
   setViewerControls?: (controls: ReactNode) => void;
+  sourceNodeId?: string;
+  onAssetCreatedFromStudio?: (newAsset: Asset, sourceNodeId: string) => void;
 }

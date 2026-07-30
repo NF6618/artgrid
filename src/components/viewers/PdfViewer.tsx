@@ -8,6 +8,7 @@ import {
 } from '../Icons';
 import { ViewerProps } from './ViewerTypes';
 import { AIToolbar } from './AIToolbar';
+import { Virtuoso } from 'react-virtuoso';
 
 // Set up pdf.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -385,16 +386,34 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
     }, 80);
   }, [pdfPageNum, pdfTotalPages, isTransitioning]);
 
+  const handleNextSpread = useCallback(() => {
+    if (pdfPageNum === 1) {
+      handlePageTurn(Math.min(2, pdfTotalPages));
+    } else {
+      const evenPage = pdfPageNum % 2 === 0 ? pdfPageNum : pdfPageNum - 1;
+      handlePageTurn(Math.min(evenPage + 2, pdfTotalPages));
+    }
+  }, [pdfPageNum, pdfTotalPages, handlePageTurn]);
+
+  const handlePrevSpread = useCallback(() => {
+    if (pdfPageNum <= 3) {
+      handlePageTurn(1);
+    } else {
+      const evenPage = pdfPageNum % 2 === 0 ? pdfPageNum : pdfPageNum - 1;
+      handlePageTurn(Math.max(evenPage - 2, 1));
+    }
+  }, [pdfPageNum, handlePageTurn]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (viewMode !== 'flipbook') return;
-      if (e.key === 'ArrowRight') handlePageTurn(Math.min(pdfPageNum + 1, pdfTotalPages));
-      else if (e.key === 'ArrowLeft') handlePageTurn(Math.max(pdfPageNum - 1, 1));
+      if (e.key === 'ArrowRight') handleNextSpread();
+      else if (e.key === 'ArrowLeft') handlePrevSpread();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pdfPageNum, pdfTotalPages, isTransitioning, viewMode, handlePageTurn]);
+  }, [pdfPageNum, pdfTotalPages, isTransitioning, viewMode, handleNextSpread, handlePrevSpread]);
 
   // ─── High-Fidelity Native PDF Embedded Image Extractor ────────────────────
   const handleExtractNativePdfImages = useCallback(async () => {
@@ -826,25 +845,31 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
           width: 170,
           background: 'var(--bg-secondary)',
           borderRight: '1px solid var(--border-subtle)',
-          padding: 12,
-          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
-          gap: 12,
           flexShrink: 0,
         }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <div style={{ padding: '12px 12px 6px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Pages ({pdfTotalPages})
           </div>
-          {Array.from({ length: pdfTotalPages }, (_, i) => i + 1).map(pNum => (
-            <PdfPageThumbnailCanvas
-              key={pNum}
-              pdfDoc={pdfDoc}
-              pageNum={pNum}
-              isSelected={pdfPageNum === pNum || spread.left === pNum || spread.right === pNum}
-              onClick={() => handlePageTurn(pNum)}
-            />
-          ))}
+          <Virtuoso
+            style={{ flex: 1, width: '100%' }}
+            totalCount={pdfTotalPages}
+            itemContent={(index) => {
+              const pNum = index + 1;
+              return (
+                <div style={{ padding: '6px 12px' }}>
+                  <PdfPageThumbnailCanvas
+                    key={pNum}
+                    pdfDoc={pdfDoc}
+                    pageNum={pNum}
+                    isSelected={pdfPageNum === pNum || spread.left === pNum || spread.right === pNum}
+                    onClick={() => handlePageTurn(pNum)}
+                  />
+                </div>
+              );
+            }}
+          />
         </div>
       )}
 
@@ -856,26 +881,33 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
           display: 'flex',
           alignItems: viewMode === 'scroll' ? 'flex-start' : 'center',
           justifyContent: 'center',
-          padding: 24,
-          overflow: 'auto',
+          padding: viewMode === 'scroll' ? 0 : 24,
+          overflow: viewMode === 'scroll' ? 'hidden' : 'auto',
           position: 'relative',
         }}
       >
         {viewMode === 'scroll' ? (
           /* ─── Scroll Mode ──────────────────────────────────────────────── */
-          <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 1000, margin: '0 auto', paddingBottom: 60 }}>
-            {Array.from({ length: pdfTotalPages }, (_, i) => i + 1).map(pNum => (
-              <ScrollPageCanvas 
-                key={pNum} 
-                pdfDoc={pdfDoc} 
-                pageNum={pNum} 
-                scale={fitScale * userZoom} 
-                onVisible={(page) => {
-                  if (page !== pdfPageNum && !isSearching) setPdfPageNum(page);
-                }}
-              />
-            ))}
-          </div>
+          <Virtuoso
+            style={{ width: '100%', height: '100%', maxWidth: 1000, margin: '0 auto' }}
+            totalCount={pdfTotalPages}
+            itemContent={(index) => {
+              const pNum = index + 1;
+              return (
+                <div style={{ padding: '24px 0', paddingBottom: index === pdfTotalPages - 1 ? 60 : 0 }}>
+                  <ScrollPageCanvas 
+                    key={pNum} 
+                    pdfDoc={pdfDoc} 
+                    pageNum={pNum} 
+                    scale={fitScale * userZoom} 
+                    onVisible={(page) => {
+                      if (page !== pdfPageNum && !isSearching) setPdfPageNum(page);
+                    }}
+                  />
+                </div>
+              );
+            }}
+          />
         ) : (
           /* ─── Flipbook Mode: Two-Page Spread ───────────────────────────── */
           <div style={{
@@ -887,7 +919,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
           }}>
             {/* Previous Page Arrow */}
             <button
-              onClick={() => handlePageTurn(pdfPageNum - 1)}
+              onClick={handlePrevSpread}
               disabled={pdfPageNum <= 1 || isTransitioning}
               className="toolbar__btn"
               style={{
@@ -963,7 +995,7 @@ export const PdfViewer: React.FC<ViewerProps> = ({ asset, resolvedUrl, onAssetsU
 
             {/* Next Page Arrow */}
             <button
-              onClick={() => handlePageTurn(pdfPageNum + 1)}
+              onClick={handleNextSpread}
               disabled={pdfPageNum >= pdfTotalPages || isTransitioning}
               className="toolbar__btn"
               style={{

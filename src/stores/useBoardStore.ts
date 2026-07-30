@@ -14,6 +14,7 @@ interface BoardState {
   renameBoard: (boardId: string, newTitle: string) => Promise<void>;
   deleteBoard: (boardId: string) => Promise<void>;
   setActiveBoard: (boardId: string | null) => void;
+  addAssetToBoard: (boardId: string, asset: { id: string; url: string; width?: number; height?: number }) => Promise<void>;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -72,6 +73,34 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }
   },
 
+  // ── Add Asset to Board ──────────────────────────────────────
+  addAssetToBoard: async (boardId: string, asset: { id: string; url: string; width?: number; height?: number }) => {
+    const board = get().boards.find(b => b.id === boardId);
+    if (!board) return;
+
+    let w = asset.width || 360;
+    let h = asset.height || 360;
+    if (w > 400) {
+      const scale = 400 / w;
+      w = 400;
+      h = h * scale;
+    }
+
+    const newNode: ArtGridNode = {
+      id: `node_${crypto.randomUUID()}`,
+      type: 'image',
+      x: 100 + (board.nodes.length * 25) % 300,
+      y: 100 + (board.nodes.length * 25) % 300,
+      width: w,
+      height: h,
+      src: asset.url,
+      assetId: asset.id,
+    };
+
+    const updatedNodes = [...(board.nodes as ArtGridNode[]), newNode];
+    await get().updateBoardNodes(boardId, updatedNodes);
+  },
+
   // ── Rename ───────────────────────────────────────────────────────────────
   renameBoard: async (boardId: string, newTitle: string) => {
     set(state => ({
@@ -104,4 +133,5 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 
   setActiveBoard: boardId => set({ activeBoardId: boardId }),
 }));
+
 
