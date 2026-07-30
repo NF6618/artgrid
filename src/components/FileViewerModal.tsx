@@ -6,6 +6,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { ImageViewer } from './viewers/ImageViewer';
 import { PdfViewer } from './viewers/PdfViewer';
 import { TextViewer } from './viewers/TextViewer';
+import { VideoViewer } from './viewers/VideoViewer';
 
 interface FileViewerModalProps {
   asset: Asset | null;
@@ -54,6 +55,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   const isPdf = asset ? ((asset.type && asset.type.toLowerCase().includes('pdf')) || ext === 'pdf') : false;
   const isDocx = asset ? ((asset.type && asset.type.toLowerCase().includes('word')) || ext === 'docx' || ext === 'doc') : false;
   const isText = asset ? ((asset.type && asset.type.toLowerCase().startsWith('text')) || ext === 'md' || ext === 'txt' || ext === 'json' || ext === 'log') : false;
+  const isVideo = asset ? ((asset.type && asset.type.toLowerCase().startsWith('video')) || ['mp4', 'webm', 'mov'].includes(ext)) : false;
 
   const getResolvedUrl = (): string => {
     if (!asset) return '';
@@ -255,6 +257,12 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
             setViewerControls={setViewerControls}
             sourceNodeId={sourceNodeId}
             onAssetCreatedFromStudio={onAssetCreatedFromStudio}
+          />
+        ) : isVideo ? (
+          <VideoViewer 
+            asset={asset} 
+            resolvedUrl={resolvedUrl} 
+            setViewerControls={setViewerControls}
           />
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>

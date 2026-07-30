@@ -1,6 +1,22 @@
 import { extractPageMetadata } from './metadata';
+import { MediaSidebar } from './sidebar';
+import { scanPageMedia } from './scanner';
 
 console.log('ArtGrid Extension Content Script Injected');
+
+let sidebarInstance: MediaSidebar;
+
+function debounce(func: Function, wait: number) {
+  let timeout: number | undefined;
+  return function executedFunction(...args: any[]) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = window.setTimeout(later, wait);
+  };
+}
 
 const savedPins = new Set<string>();
 
@@ -178,18 +194,40 @@ style.textContent = `
 document.head.appendChild(style);
 
 const observer = new MutationObserver((mutations) => {
+  let hasElement = false;
   for (const m of mutations) {
     if (m.addedNodes.length) {
-      // Small optimization: only scan if added nodes contain elements
-      const hasElement = Array.from(m.addedNodes).some(n => n.nodeType === Node.ELEMENT_NODE);
-      if (hasElement) {
-        scanAndInject(document);
+      if (Array.from(m.addedNodes).some(n => n.nodeType === Node.ELEMENT_NODE)) {
+        hasElement = true;
+        break;
       }
     }
   }
+  if (hasElement) {
+    scanAndInject(document);
+    rescanMedia();
+  }
 });
 
+const rescanMedia = debounce(() => {
+  if (sidebarInstance) {
+    const fresh = scanPageMedia();
+    sidebarInstance.mergeNewItems(fresh);
+  }
+}, 800);
+
 function initObserver() {
+  sidebarInstance = new MediaSidebar(() => {
+    const fresh = scanPageMedia();
+    sidebarInstance.mergeNewItems(fresh);
+  });
+  
+  // Initial scan
+  setTimeout(() => {
+    const fresh = scanPageMedia();
+    sidebarInstance.mergeNewItems(fresh);
+  }, 1000);
+
   chrome.runtime.sendMessage({ type: 'GET_SAVED_PINS' }, (response) => {
     if (response && response.success && response.savedPins) {
       response.savedPins.forEach((id: string) => savedPins.add(id));

@@ -67,7 +67,7 @@ fn process_new_file(app: &AppHandle, path: PathBuf) {
     }
 
     let ext = path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
-    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf"];
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "mp4", "webm", "mov"];
     
     if !supported_exts.contains(&ext.as_str()) {
         println!("ARTGRID: Ignoring unsupported file {:?}", path);
@@ -102,6 +102,7 @@ fn process_new_file(app: &AppHandle, path: PathBuf) {
     let type_ = match ext.as_str() {
         "md" | "txt" => "text/plain".to_string(),
         "pdf" => "application/pdf".to_string(),
+        "mp4" | "webm" | "mov" => format!("video/{}", ext),
         _ => format!("image/{}", ext)
     };
 

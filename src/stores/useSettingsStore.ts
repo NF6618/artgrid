@@ -30,6 +30,9 @@ export interface AppSettings {
   importMode?: 'copy' | 'move';
   enableVerboseLogging?: boolean;
   enableAiModels?: boolean;
+  mediaAutoplay?: boolean;
+  mediaAudioOnHover?: boolean;
+  mediaGlobalMute?: boolean;
 }
 
 interface SettingsState extends AppSettings {
@@ -64,6 +67,9 @@ const defaultSettings: AppSettings = {
   tldrawTheme: 'dark',
   tldrawGridStyle: 'dots',
   tldrawSnapToGrid: true,
+  mediaAutoplay: true,
+  mediaAudioOnHover: false,
+  mediaGlobalMute: true,
 };
 
 const applyStyleSettings = (settings: Partial<AppSettings>) => {

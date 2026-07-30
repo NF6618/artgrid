@@ -285,6 +285,64 @@ pub fn get_assets(state: State<'_, AppState>) -> Result<Vec<AssetData>, String> 
 }
 
 #[tauri::command]
+pub fn update_asset_video_metadata(
+    id: String, 
+    width: u32, 
+    height: u32, 
+    thumbnail_base64: Option<String>, 
+    state: State<'_, AppState>, 
+    app: AppHandle
+) -> Result<(), String> {
+    let db_lock = state.db.lock().unwrap();
+    let conn = db_lock.as_ref().ok_or("No vault opened")?;
+    
+    let mut thumbnail_url: Option<String> = None;
+
+    if let Some(b64) = thumbnail_base64 {
+        let vault_lock = state.vault_path.lock().unwrap();
+        if let Some(vault_path) = vault_lock.as_ref() {
+            let raw_b64 = if let Some(pos) = b64.find(',') {
+                &b64[pos + 1..]
+            } else {
+                &b64
+            };
+
+            use base64::Engine;
+            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(raw_b64) {
+                let thumb_filename = format!("{}_thumb.jpg", id);
+                let thumb_rel_path = PathBuf::from("artgrid").join("media").join(&thumb_filename);
+                let thumb_abs_path = vault_path.join(&thumb_rel_path);
+                
+                if let Some(parent) = thumb_abs_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                
+                if fs::write(&thumb_abs_path, bytes).is_ok() {
+                    thumbnail_url = Some(thumb_rel_path.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    if let Some(url) = thumbnail_url {
+        conn.execute(
+            "UPDATE assets SET width = ?1, height = ?2, thumbnail_url = ?3 WHERE id = ?4",
+            (&width, &height, &url, &id),
+        ).map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "UPDATE assets SET width = ?1, height = ?2 WHERE id = ?3",
+            (&width, &height, &id),
+        ).map_err(|e| e.to_string())?;
+    }
+
+    use tauri::Emitter;
+    app.emit("vault-updated", ()).ok();
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn import_file(file_path: String, app: tauri::AppHandle) -> Result<AssetData, String> {
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -303,7 +361,7 @@ pub async fn import_file(file_path: String, app: tauri::AppHandle) -> Result<Ass
     let id = Uuid::new_v4().to_string();
     let ext = source_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
     
-    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc"];
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc", "mp4", "webm", "mov"];
     if !supported_exts.contains(&ext.as_str()) {
         return Err("Unsupported file type".to_string());
     }
@@ -333,7 +391,7 @@ pub async fn import_file(file_path: String, app: tauri::AppHandle) -> Result<Ass
         let thumb_abs_path = vault_path.join(&thumb_rel_path);
         let _ = generate_pdf_thumbnail(&dest_abs_path, &thumb_abs_path);
         thumbnail_url = Some(thumb_rel_path.to_string_lossy().into_owned());
-    } else if ["png", "jpg", "jpeg", "webp"].contains(&ext.as_str()) {
+    } else if ["png", "jpg", "jpeg", "webp", "gif"].contains(&ext.as_str()) {
         let thumb_filename = format!("{}_thumb.jpg", id);
         let thumb_rel_path = PathBuf::from("artgrid").join("media").join(&thumb_filename);
         let thumb_abs_path = vault_path.join(&thumb_rel_path);
@@ -354,6 +412,7 @@ pub async fn import_file(file_path: String, app: tauri::AppHandle) -> Result<Ass
         "md" | "txt" => "text/plain".to_string(),
         "pdf" => "application/pdf".to_string(),
         "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+        "mp4" | "webm" | "mov" => format!("video/{}", ext),
         _ => format!("image/{}", ext)
     };
     
@@ -1012,7 +1071,7 @@ pub async fn import_batch_files(
     let mut failed_count = 0;
     let mut errors = Vec::new();
     
-    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc"];
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc", "mp4", "webm", "mov"];
     
     for (idx, file_path) in files.into_iter().enumerate() {
         let source_path = PathBuf::from(&file_path);
@@ -1108,6 +1167,7 @@ pub async fn import_batch_files(
             "md" | "txt" => "text/plain".to_string(),
             "pdf" => "application/pdf".to_string(),
             "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+            "mp4" | "webm" | "mov" => format!("video/{}", ext),
             _ => format!("image/{}", ext)
         };
 
@@ -1172,7 +1232,7 @@ pub fn scan_vault_media(state: State<'_, AppState>, app: AppHandle) -> Result<us
     }
     
     let mut added_count = 0;
-    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc"];
+    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "md", "txt", "pdf", "docx", "doc", "mp4", "webm", "mov"];
 
     if let Ok(entries) = fs::read_dir(&media_dir) {
         for entry in entries.flatten() {
@@ -1204,6 +1264,7 @@ pub fn scan_vault_media(state: State<'_, AppState>, app: AppHandle) -> Result<us
                     "md" | "txt" => "text/plain".to_string(),
                     "pdf" => "application/pdf".to_string(),
                     "docx" | "doc" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+                    "mp4" | "webm" | "mov" => format!("video/{}", ext),
                     _ => format!("image/{}", ext)
                 };
                 

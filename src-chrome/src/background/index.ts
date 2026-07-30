@@ -42,6 +42,27 @@ chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.Mess
       });
     return true;
   }
+  if (message.type === 'BATCH_SAVE_IMAGE') {
+    fetch('http://localhost:1430/api/ingest/batch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message.payload),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        sendResponse({ success: true });
+      })
+      .catch((err) => {
+        console.error('ArtGrid batch save error in background:', err);
+        sendResponse({ success: false, error: err.toString() });
+      });
+      
+    return true; 
+  }
   
   return false;
 });

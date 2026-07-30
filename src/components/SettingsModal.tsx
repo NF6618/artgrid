@@ -19,7 +19,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [hasChanges, setHasChanges] = useState(false);
 
-  const { theme, defaultView, autoWatch, compactMode, importMode, enableAiModels, vaults, updateSettings, removeVault } = useSettingsStore();
+  const { theme, defaultView, autoWatch, compactMode, importMode, enableAiModels, mediaAutoplay, mediaAudioOnHover, mediaGlobalMute, vaults, updateSettings, removeVault } = useSettingsStore();
 
   const [settings, setSettings] = useState<Partial<AppSettings>>({
     theme,
@@ -27,15 +27,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     autoWatch,
     compactMode,
     importMode,
-    enableAiModels
+    enableAiModels,
+    mediaAutoplay,
+    mediaAudioOnHover,
+    mediaGlobalMute
   });
 
   useEffect(() => {
     if (visible) {
-      setSettings({ theme, defaultView, autoWatch, compactMode, importMode, enableAiModels });
+      setSettings({ theme, defaultView, autoWatch, compactMode, importMode, enableAiModels, mediaAutoplay, mediaAudioOnHover, mediaGlobalMute });
       setHasChanges(false);
     }
-  }, [visible, theme, defaultView, autoWatch, compactMode, importMode, enableAiModels]);
+  }, [visible, theme, defaultView, autoWatch, compactMode, importMode, enableAiModels, mediaAutoplay, mediaAudioOnHover, mediaGlobalMute]);
 
   if (!visible) return null;
 
@@ -221,6 +224,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div>
                         <div style={{ fontWeight: 500 }}>Enable AI Models</div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Allow downloading models for Background Removal and Upscaling locally in browser</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Media & Playback
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.mediaAutoplay ?? true} 
+                        onChange={(e) => { setSettings({...settings, mediaAutoplay: e.target.checked}); setHasChanges(true); }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 500 }}>Autoplay Media on Canvas</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically play GIFs and videos when visible on the board</div>
+                      </div>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.mediaGlobalMute ?? true} 
+                        onChange={(e) => { setSettings({...settings, mediaGlobalMute: e.target.checked}); setHasChanges(true); }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 500 }}>Global Audio Mute</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Mute all video audio by default across the application</div>
+                      </div>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', opacity: settings.mediaGlobalMute ? 0.5 : 1 }}>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.mediaAudioOnHover ?? false} 
+                        onChange={(e) => { setSettings({...settings, mediaAudioOnHover: e.target.checked}); setHasChanges(true); }}
+                        disabled={settings.mediaGlobalMute}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 500 }}>Play Audio on Hover</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Only play audio when hovering over the video on the canvas</div>
                       </div>
                     </label>
                   </div>

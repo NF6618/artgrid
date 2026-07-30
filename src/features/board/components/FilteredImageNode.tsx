@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ImageNode } from '../engine/types';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 
 interface FilteredImageNodeProps {
   node: ImageNode;
@@ -10,6 +11,13 @@ interface FilteredImageNodeProps {
 
 export const FilteredImageNode: React.FC<FilteredImageNodeProps> = ({ node, isCropping, isLOD, onCropDragStart }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const { mediaAutoplay, mediaAudioOnHover, mediaGlobalMute } = useSettingsStore();
+
+  const isVideo = node.src.toLowerCase().endsWith('.mp4') || node.src.toLowerCase().endsWith('.webm') || node.src.toLowerCase().endsWith('.mov');
+  const isGif = node.src.toLowerCase().endsWith('.gif');
+  const shouldAnimate = !isLOD && (isVideo || (isGif && mediaAutoplay));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -69,8 +77,34 @@ export const FilteredImageNode: React.FC<FilteredImageNodeProps> = ({ node, isCr
     };
   }, [node.src, node.crop, node.adjustments, node.width, node.height]);
 
+  const cropU = node.crop?.x ?? 0.0;
+  const cropV = node.crop?.y ?? 0.0;
+  const cropW = node.crop?.width ?? 1.0;
+  const cropH = node.crop?.height ?? 1.0;
+
+  const brightness = node.adjustments?.brightness ?? 0;
+  const contrast = node.adjustments?.contrast ?? 0;
+  const saturation = node.adjustments?.saturation ?? 0;
+  const filterStyle = `brightness(${100 + brightness}%) contrast(${100 + contrast}%) saturate(${100 + saturation}%)`;
+
+  const overlayStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: `-${(cropU / cropW) * 100}%`,
+    top: `-${(cropV / cropH) * 100}%`,
+    width: `${(1 / cropW) * 100}%`,
+    height: `${(1 / cropH) * 100}%`,
+    filter: filterStyle,
+    objectFit: 'fill',
+    pointerEvents: 'none',
+    zIndex: 1
+  };
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+    <div 
+      style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
        {isCropping && (
           <img 
             src={node.src} 
@@ -85,6 +119,23 @@ export const FilteredImageNode: React.FC<FilteredImageNodeProps> = ({ node, isCr
               objectFit: 'contain', 
               zIndex: -1 
             }} 
+          />
+       )}
+       {shouldAnimate && isVideo && (
+          <video 
+             ref={videoRef}
+             src={node.src}
+             autoPlay={mediaAutoplay}
+             loop
+             muted={mediaGlobalMute ? !(mediaAudioOnHover && isHovered) : (mediaAudioOnHover ? !isHovered : false)}
+             style={overlayStyle}
+          />
+       )}
+       {shouldAnimate && isGif && (
+          <img 
+             src={node.src}
+             alt="gif-anim"
+             style={overlayStyle}
           />
        )}
        <canvas 

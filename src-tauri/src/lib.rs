@@ -79,6 +79,7 @@ pub fn run() {
             import::purge_all_data,
             import::spawn_tab_window,
             import::open_standalone_window,
+            import::update_asset_video_metadata,
             board::get_boards,
             board::create_board,
             board::save_board,

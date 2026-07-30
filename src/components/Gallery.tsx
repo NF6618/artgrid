@@ -90,6 +90,78 @@ const PdfThumbnailCard: React.FC<{ url: string; title: string }> = ({ url, title
   );
 };
 
+const VideoThumbnailCard: React.FC<{ asset: Asset; onAssetsUpdated?: () => void }> = ({ asset, onAssetsUpdated }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    
+    const handleLoadedData = () => {
+      // Seek to 1 second in or halfway if it's shorter
+      if (video.duration) {
+          video.currentTime = Math.min(1.0, video.duration / 2);
+      }
+    };
+
+    const handleSeeked = async () => {
+      if (!isMounted) return;
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke('update_asset_video_metadata', {
+            id: asset.id,
+            width: video.videoWidth,
+            height: video.videoHeight,
+            thumbnailBase64: dataUrl
+          });
+          if (onAssetsUpdated) {
+             onAssetsUpdated();
+          }
+        }
+      } catch (err) {
+        console.error("Failed to generate video thumbnail:", err);
+      }
+      setLoading(false);
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData);
+    video.addEventListener('seeked', handleSeeked);
+
+    return () => {
+      isMounted = false;
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('seeked', handleSeeked);
+    };
+  }, [asset.id, onAssetsUpdated, asset.url]);
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+      <video 
+        ref={videoRef} 
+        src={asset.url} 
+        muted 
+        preload="auto" 
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: loading ? 'none' : 'block' }} 
+      />
+      {loading && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading Video...</div>}
+      <div style={{ position: 'absolute', top: 6, right: 6, background: '#3b82f6', color: 'white', fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em', zIndex: 10 }}>
+        VIDEO
+      </div>
+    </div>
+  );
+};
+
 interface GalleryProps {
   assets: Asset[];
   selectedAsset: Asset | null;
@@ -540,6 +612,8 @@ export const Gallery: React.FC<GalleryProps> = ({
               const asset = item.data as Asset;
               const isSelected = selectedAsset?.id === asset.id || selectedIds.includes(asset.id);
               const isPdf = (asset.type && asset.type.toLowerCase().includes('pdf')) || asset.filename.toLowerCase().endsWith('.pdf');
+              const isVideo = asset ? ((asset.type && asset.type.toLowerCase().startsWith('video')) || ['mp4', 'webm', 'mov'].includes(asset.filename.split('.').pop()?.toLowerCase() || '')) : false;
+              const isGif = asset.filename.toLowerCase().endsWith('.gif');
               const aspectRatio = (asset.width && asset.height) ? `${asset.width} / ${asset.height}` : '4/3';
 
               return (
@@ -583,16 +657,39 @@ export const Gallery: React.FC<GalleryProps> = ({
                       ) : (
                         <PdfThumbnailCard url={asset.url} title={asset.title} />
                       )
+                    ) : isVideo ? (
+                      asset.thumbnail_url ? (
+                        <>
+                          <img 
+                            src={asset.thumbnail_url} 
+                            alt={asset.title} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                            draggable={false}
+                          />
+                          <div style={{ position: 'absolute', top: 6, right: 6, background: '#3b82f6', color: 'white', fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em', zIndex: 10 }}>
+                            VIDEO
+                          </div>
+                        </>
+                      ) : (
+                        <VideoThumbnailCard asset={asset} onAssetsUpdated={onAssetsUpdated} />
+                      )
                     ) : (
-                      <img 
-                        src={asset.url} 
-                        alt={asset.title} 
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                        draggable={false}
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
+                      <>
+                        <img 
+                          src={asset.thumbnail_url || asset.url} 
+                          alt={asset.title} 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                          draggable={false}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                        {isGif && (
+                          <div style={{ position: 'absolute', top: 6, right: 6, background: '#10b981', color: 'white', fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em', zIndex: 10 }}>
+                            GIF
+                          </div>
+                        )}
+                      </>
                     )}
                     {asset.is_semantic && (
                       <div style={{
