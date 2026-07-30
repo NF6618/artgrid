@@ -1,4 +1,9 @@
-import type { HoveredImage } from '../Overlay';
+export interface HoveredImage {
+  src: string;
+  alt: string;
+  rect: DOMRect;
+  targetRect?: DOMRect;
+}
 
 export interface SiteAdapter {
   /**

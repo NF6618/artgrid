@@ -1,144 +1,207 @@
-import { createRoot } from 'react-dom/client';
-import { getActiveAdapter } from './adapters';
-import { Overlay } from './Overlay';
-import type { HoveredImage } from './Overlay';
-// Vite will inject this CSS when building
-import '../index.css';
+import { extractPageMetadata } from './metadata';
 
 console.log('ArtGrid Extension Content Script Injected');
 
-let hoverTimeout: number | null = null;
-let currentTarget: HTMLElement | null = null;
-let isHoveringOverlay = false;
+const savedPins = new Set<string>();
 
-const init = () => {
-  const rootElement = document.createElement('div');
-  rootElement.id = 'artgrid-extension-root';
-  // It's critical to make the root container pointer-events-none so it doesn't block the host page,
-  // while the overlay child can have pointer-events-auto
-  rootElement.style.position = 'fixed';
-  rootElement.style.top = '0';
-  rootElement.style.left = '0';
-  rootElement.style.width = '100vw';
-  rootElement.style.height = '100vh';
-  rootElement.style.pointerEvents = 'none';
-  rootElement.style.zIndex = '2147483647';
+function markButtonAsSaved(btn: HTMLButtonElement) {
+  btn.innerHTML = '✓';
+  btn.style.backgroundColor = '#4ade80';
+  btn.style.borderColor = '#4ade80';
+  btn.style.pointerEvents = 'none';
+  btn.onmouseenter = null;
+  btn.onmouseleave = null;
+  btn.style.transform = 'scale(1)';
+}
+
+function getBestImageUrl(imgEl: HTMLImageElement): string {
+  const srcset = imgEl.getAttribute('srcset');
+  if (!srcset) return imgEl.src;
+  const candidates = srcset.split(',').map(s => s.trim().split(' ')[0]);
+  const originals = candidates.find(url => url.includes('/originals/'));
+  if (originals) return originals;
   
-  const shadowRoot = rootElement.attachShadow({ mode: 'open' });
+  // Fallback: construct the originals URL
+  if (imgEl.src) {
+    const constructed = imgEl.src.replace(/\/(236x|474x|736x)\//, '/originals/');
+    // Returning the constructed URL (we rely on the backend to fallback if it 404s, 
+    // or we can just return it and let the backend try fetching it).
+    // The user's snippet suggested falling back, but returning it is standard.
+    return constructed;
+  }
   
-  // Inject Tailwind styles directly into the shadow DOM
-  // During dev, Vite handles style injection, but for prod extension we might need to manually inject.
-  // For now we assume CRXJS handles it.
-  
-  const reactContainer = document.createElement('div');
-  reactContainer.id = 'artgrid-react-container';
-  shadowRoot.appendChild(reactContainer);
-  
-  document.documentElement.appendChild(rootElement);
+  return candidates[candidates.length - 1]; // last listed is usually highest-res non-original
+}
 
-  const root = createRoot(reactContainer);
-  root.render(<Overlay />);
-  
-  setupEventDelegation();
-};
+function sendToLocalApp(imageUrl: string, pinId: string | undefined, btn: HTMLButtonElement) {
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = `<span style="display:inline-block; animation: spin 1s linear infinite;">↻</span>`;
+  btn.style.pointerEvents = 'none';
 
-const dispatchHover = (imageInfo: HoveredImage | null) => {
-  window.dispatchEvent(new CustomEvent('artgrid:imageHover', { detail: imageInfo }));
-};
+  const pageMetadata = extractPageMetadata();
 
-const setupEventDelegation = () => {
-  const activeAdapter = getActiveAdapter();
-
-  document.addEventListener('mouseover', (e) => {
-    const target = e.target as HTMLElement;
-    let newHoverInfo: HoveredImage | null = null;
-    let hoverTarget: HTMLElement | null = null;
-
-    // 1. Try Site-Specific Adapter
-    if (activeAdapter) {
-      newHoverInfo = activeAdapter.parseHover(target);
-      if (newHoverInfo) {
-        // Find the topmost container as the target for mouseout to avoid flickering
-        hoverTarget = target.closest('[data-test-id="pin"]') || target.closest('.pinWrapper') || target.closest('article') || target;
-      }
-    }
-
-    // 2. Fallback to standard <img> tag
-    if (!newHoverInfo && target.tagName && target.tagName.toLowerCase() === 'img') {
-      const img = target as HTMLImageElement;
-      
-      // Ignore tiny icons or tracking pixels
-      if (img.width >= 150 && img.height >= 150) {
-        newHoverInfo = {
-          src: img.src,
-          alt: img.alt || '',
-          rect: img.getBoundingClientRect(),
-        };
-        hoverTarget = img;
-      }
-    }
-
-    if (newHoverInfo && hoverTarget) {
-      currentTarget = hoverTarget;
-      
-      if (hoverTimeout) clearTimeout(hoverTimeout);
-      
-      dispatchHover(newHoverInfo);
-    }
-  }, true);
-
-  document.addEventListener('mouseout', (e) => {
-    const target = e.target as HTMLElement;
-    if (target === currentTarget) {
-      if (hoverTimeout) clearTimeout(hoverTimeout);
-      // Give a small grace period to allow moving mouse to the button
-      hoverTimeout = window.setTimeout(() => {
-        if (!isHoveringOverlay) {
-          dispatchHover(null);
-          currentTarget = null;
+  chrome.runtime.sendMessage(
+    {
+      type: 'SAVE_IMAGE',
+      payload: {
+        url: imageUrl,
+        source: window.location.href,
+        metadata: {
+          ...pageMetadata,
+          pinId: pinId || '',
+          capturedAt: Date.now()
         }
-      }, 300) as unknown as number;
+      }
+    },
+    (res) => {
+        btn.style.pointerEvents = 'auto';
+      if (chrome.runtime.lastError) {
+        console.error('Runtime error:', chrome.runtime.lastError);
+        btn.innerHTML = '❌';
+        setTimeout(() => btn.innerHTML = originalHtml, 2000);
+      } else if (res && res.success) {
+        if (pinId) savedPins.add(pinId);
+        markButtonAsSaved(btn);
+      } else {
+        btn.innerHTML = '❌';
+        btn.style.backgroundColor = '#f87171'; // error red
+        btn.style.borderColor = '#f87171';
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+          btn.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+        }, 2000);
+      }
     }
-  }, true);
+  );
+}
 
-  window.addEventListener('artgrid:keepHover' as any, () => {
-    isHoveringOverlay = true;
-    if (hoverTimeout) clearTimeout(hoverTimeout);
+function createButtonHTML(): string {
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+}
+
+function injectDownloadButton(container: HTMLElement) {
+  if (container.querySelector('.artgrid-dl-btn')) return; // avoid duplicates
+  
+  // Find the image wrapper
+  let imgWrapper: HTMLElement | null = container.querySelector('[data-test-id="pinrep-image"]');
+  
+  // For closeup view, the container itself might be the wrapper
+  if (!imgWrapper) {
+    if (container.getAttribute('data-test-id') === 'closeup-body-image-container' || 
+        container.getAttribute('data-test-id') === 'story-pin-image-block') {
+      imgWrapper = container;
+    }
+  }
+
+  if (!imgWrapper) return;
+
+  const btn = document.createElement('button');
+  btn.className = 'artgrid-dl-btn';
+  btn.style.cssText = `
+    position: absolute; 
+    top: 12px; 
+    left: 12px; 
+    z-index: 99999;
+    opacity: 1; 
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s;
+    backdrop-filter: blur(4px);
+  `;
+  btn.innerHTML = createButtonHTML();
+  
+  const pinId = container.closest('[data-test-pin-id]')?.getAttribute('data-test-pin-id');
+  
+  if (pinId && savedPins.has(pinId)) {
+    markButtonAsSaved(btn);
+  } else {
+    // Hover effects only if not saved
+    btn.onmouseenter = () => {
+      btn.style.transform = 'scale(1.1)';
+      btn.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+    };
+    btn.onmouseleave = () => {
+      btn.style.transform = 'scale(1)';
+      btn.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    };
+  }
+
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const img = imgWrapper?.querySelector('img');
+    if (!img) return;
+    const url = getBestImageUrl(img);
+    sendToLocalApp(url, pinId || undefined, btn);
   });
   
-  // We need to know when mouse leaves the overlay to hide it
-  // But our mouseout above doesn't catch it because it's in shadow DOM.
-  // Instead we can listen on document mousemove and see if we are outside both target and button
-  document.addEventListener('mousemove', (e) => {
-    if (!currentTarget) return;
-    
-    const rect = currentTarget.getBoundingClientRect();
-    const isOverImage = (
-      e.clientX >= rect.left && e.clientX <= rect.right &&
-      e.clientY >= rect.top && e.clientY <= rect.bottom
-    );
-    
-    // We assume if we are not over image and not triggered 'keepHover' recently, we are out.
-    // To handle 'leave button' properly, we reset isHoveringOverlay when moving mouse over document body
-    // if it's far from the image.
-    if (!isOverImage) {
-      // If we are over the button, `isHoveringOverlay` is being actively set.
-      // We will reset it via a timeout.
-      if (hoverTimeout) clearTimeout(hoverTimeout);
-      hoverTimeout = window.setTimeout(() => {
-        isHoveringOverlay = false;
-        dispatchHover(null);
-        currentTarget = null;
-      }, 500) as unknown as number;
-    } else {
-      isHoveringOverlay = false; // back on image
+  // Ensure container can hold absolute children so the button positions correctly
+  if (getComputedStyle(container).position === 'static') {
+    container.style.position = 'relative';
+  }
+  
+  container.appendChild(btn);
+}
+
+function scanAndInject(root: HTMLElement | Document = document) {
+  // Grid pins
+  root.querySelectorAll('[data-test-id="pin"]').forEach(el => injectDownloadButton(el as HTMLElement));
+  
+  // Closeup view main image
+  const closeupImg = root.querySelector(
+    '[data-test-id="closeup-body-image-container"], [data-test-id="story-pin-image-block"]'
+  ) as HTMLElement;
+  if (closeupImg) {
+    const container = closeupImg.closest('[data-test-id="closeup-body-image-container"]') || closeupImg;
+    injectDownloadButton(container as HTMLElement);
+  }
+}
+
+// Add CSS animation for spinning
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
+
+const observer = new MutationObserver((mutations) => {
+  for (const m of mutations) {
+    if (m.addedNodes.length) {
+      // Small optimization: only scan if added nodes contain elements
+      const hasElement = Array.from(m.addedNodes).some(n => n.nodeType === Node.ELEMENT_NODE);
+      if (hasElement) {
+        scanAndInject(document);
+      }
     }
+  }
+});
+
+function initObserver() {
+  chrome.runtime.sendMessage({ type: 'GET_SAVED_PINS' }, (response) => {
+    if (response && response.success && response.savedPins) {
+      response.savedPins.forEach((id: string) => savedPins.add(id));
+    }
+    observer.observe(document.body, { childList: true, subtree: true });
+    scanAndInject(document); // initial pass
   });
-};
+}
 
 // Wait for DOM to be ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', initObserver);
 } else {
-  init();
+  initObserver();
 }

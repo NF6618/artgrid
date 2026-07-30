@@ -46,6 +46,7 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN page_number INTEGER", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN page_text TEXT", []);
     let _ = conn.execute("ALTER TABLE assets ADD COLUMN status TEXT NOT NULL DEFAULT 'indexed'", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN source_id TEXT UNIQUE", []);
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS folders (

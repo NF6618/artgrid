@@ -1,5 +1,4 @@
-import type { SiteAdapter } from './types';
-import type { HoveredImage } from '../Overlay';
+import type { SiteAdapter, HoveredImage } from './types';
 
 export const CosmosAdapter: SiteAdapter = {
   match(hostname: string) {

@@ -1,5 +1,4 @@
-import type { SiteAdapter } from './types';
-import type { HoveredImage } from '../Overlay';
+import type { SiteAdapter, HoveredImage } from './types';
 
 export const PinterestAdapter: SiteAdapter = {
   match(hostname: string) {
@@ -10,7 +9,10 @@ export const PinterestAdapter: SiteAdapter = {
     // On Pinterest, the user often hovers over a clickable overlay div, not the image itself.
     // The closest wrapper for a pin is often [data-test-id="pin"] or a specific class.
     // We can also just look for the closest container that holds an image.
-    const pinContainer = target.closest('[data-test-id="pin"]') || target.closest('.pinWrapper') || target.closest('[data-test-id="pin-visual-wrapper"]');
+    const pinContainer = target.closest('[data-test-id="pin"]') || 
+                         target.closest('.pinWrapper') || 
+                         target.closest('[data-test-id="pin-visual-wrapper"]') ||
+                         target.closest('[data-test-id="closeup-body-image-container"]');
     
     if (!pinContainer) return null;
 

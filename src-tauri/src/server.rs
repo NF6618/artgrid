@@ -1,5 +1,5 @@
 use axum::{
-    routing::post,
+    routing::{post, get},
     Router,
     Json,
     extract::State,
@@ -37,6 +37,7 @@ pub fn start_local_server(app_handle: AppHandle) {
         let app = Router::new()
             .route("/api/save", post(save_image_handler))
             .route("/api/auto-collect", post(auto_collect_handler))
+            .route("/api/saved-pins", get(get_saved_pins_handler))
             .layer(cors)
             .with_state(app_handle);
 
@@ -68,6 +69,31 @@ async fn save_image_handler(
         format!("FETCH 200 -> POST /api/save [{}]", payload.url),
         "EXTENSION".to_string(),
     );
+    
+    let state = app.state::<crate::import::AppState>();
+    let mut pin_id: Option<String> = None;
+    
+    if let Some(meta) = &payload.metadata {
+        if let Some(id) = meta.get("pinId").and_then(|v| v.as_str()) {
+            if !id.is_empty() {
+                pin_id = Some(id.to_string());
+                
+                if let Ok(mut db_lock) = state.db.lock() {
+                    if let Some(conn) = db_lock.as_mut() {
+                        if let Ok(mut stmt) = conn.prepare("SELECT id FROM assets WHERE source_id = ?1") {
+                            if stmt.exists([id]).unwrap_or(false) {
+                                return Json(SaveImageResponse {
+                                    success: true,
+                                    message: "already_saved".to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     match crate::import::import_from_url(payload.url.clone(), app.clone()).await {
         Ok(asset) => {
             crate::import::log_telemetry(
@@ -77,7 +103,7 @@ async fn save_image_handler(
             );
             
             // Update the newly imported asset with the extension metadata (source URL, notes, etc)
-            let state = app.state::<crate::AppState>();
+            let state = app.state::<crate::import::AppState>();
             if let Ok(mut db_lock) = state.db.lock() {
                 if let Some(conn) = db_lock.as_mut() {
                     let mut title = asset.title;
@@ -90,8 +116,8 @@ async fn save_image_handler(
                     }
                     
                     let _ = conn.execute(
-                        "UPDATE assets SET url = ?1, title = ?2 WHERE id = ?3",
-                        (payload.source.clone(), title, asset.id),
+                        "UPDATE assets SET url = ?1, title = ?2, source_id = ?3 WHERE id = ?4",
+                        (payload.source.clone(), title, pin_id, asset.id),
                     );
                 }
             }
@@ -137,4 +163,25 @@ async fn auto_collect_handler(
         success: true,
         message: "Auto-collection initiated".to_string(),
     })
+}
+
+async fn get_saved_pins_handler(
+    State(app): State<AppHandle>,
+) -> Json<Vec<String>> {
+    let state = app.state::<crate::import::AppState>();
+    let mut saved_pins = Vec::new();
+    
+    if let Ok(mut db_lock) = state.db.lock() {
+        if let Some(conn) = db_lock.as_mut() {
+            if let Ok(mut stmt) = conn.prepare("SELECT source_id FROM assets WHERE source_id IS NOT NULL") {
+                if let Ok(rows) = stmt.query_map([], |row| row.get(0)) {
+                    for pin in rows.flatten() {
+                        saved_pins.push(pin);
+                    }
+                }
+            }
+        }
+    }
+    
+    Json(saved_pins)
 }
