@@ -855,7 +855,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
           const showResizeHandles = isSelected && selectedIds.length === 1 && !node.locked;
 
           return (
-            <div
+              <div
               key={node.id}
               style={{
                 position: 'absolute',
@@ -864,11 +864,11 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
                 width: node.width,
                 height: node.height,
                 transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined,
-                boxShadow: isSelected ? '0 0 0 2px var(--accent-primary), 0 10px 30px rgba(0,0,0,0.5)' : '0 4px 16px rgba(0,0,0,0.3)',
-                borderRadius: node.type === 'note' ? 8 : (node.type === 'image' ? 6 : 4),
-                overflow: croppingNodeId === node.id ? 'visible' : 'hidden',
-                border: isSelected ? '2px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.08)',
+                boxShadow: isSelected ? '0 0 0 2px var(--accent-primary), 0 16px 40px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.2)',
+                borderRadius: node.type === 'note' ? 2 : (node.type === 'image' ? 8 : 4),
+                overflow: (node.type === 'note' || croppingNodeId === node.id) ? 'visible' : 'hidden',
                 cursor: node.locked ? 'not-allowed' : 'move',
+                transition: 'box-shadow 0.2s ease',
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -886,8 +886,9 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
             >
               {/* SECTION WORKSPACE FRAME NODE */}
               {node.type === 'section' && (
-                <div style={{ width: '100%', height: '100%', border: `2px dashed ${(node as SectionNode).color || 'var(--accent-primary)'}`, borderRadius: 8, background: 'rgba(124, 107, 240, 0.04)', position: 'relative' }}>
-                  <div style={{ background: (node as SectionNode).color || 'var(--accent-primary)', color: 'white', padding: '4px 12px', borderTopLeftRadius: 6, borderTopRightRadius: 6, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ width: '100%', height: '100%', border: `1px solid ${(node as SectionNode).color || 'rgba(255,255,255,0.1)'}`, borderRadius: 12, background: 'rgba(255, 255, 255, 0.02)', position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '100%', background: `linear-gradient(180deg, ${(node as SectionNode).color || 'var(--accent-primary)'}15 0%, transparent 40px)` }} />
+                  <div style={{ position: 'absolute', top: -32, left: -1, background: (node as SectionNode).color || 'var(--accent-primary)', color: 'white', padding: '6px 16px', borderTopLeftRadius: 8, borderTopRightRadius: 8, fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', boxShadow: '0 -4px 12px rgba(0,0,0,0.1)' }}>
                     {editingNodeId === node.id ? (
                       <input 
                         autoFocus
@@ -897,7 +898,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
                           updateNodes(nodes.map(n => n.id === node.id ? { ...n, title: editingText } : n));
                           setEditingNodeId(null);
                         }}
-                        style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', fontWeight: 600, fontSize: '12px', width: '100%' }}
+                        style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', fontWeight: 600, fontSize: '13px', width: '100%' }}
                       />
                     ) : (
                       <span>{(node as SectionNode).title || 'Workspace Section'}</span>
@@ -956,49 +957,67 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
               )}
 
               {/* STICKY NOTE NODE */}
-              {node.type === 'note' && (
-                <div
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    background: getNoteBgColor((node as NoteNode).color),
-                    color: (node as NoteNode).color === 'dark' ? '#f8fafc' : '#1e293b',
-                    padding: 14,
-                    boxSizing: 'border-box',
-                    fontSize: '14px',
-                    fontWeight: 500,
-                    borderRadius: 8,
-                    overflow: 'hidden',
-                  }}
-                >
-                  {editingNodeId === node.id ? (
-                    <textarea
-                      autoFocus
-                      value={editingText}
-                      onChange={e => setEditingText(e.target.value)}
-                      onBlur={() => {
-                        updateNodes(nodes.map(n => n.id === node.id ? { ...n, text: editingText } : n));
-                        setEditingNodeId(null);
-                      }}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        background: 'transparent',
-                        border: 'none',
-                        outline: 'none',
-                        resize: 'none',
-                        fontFamily: 'inherit',
-                        fontSize: 'inherit',
-                        color: 'inherit',
-                      }}
-                    />
-                  ) : (
-                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {(node as NoteNode).text || 'Double-click to edit'}
-                    </div>
-                  )}
-                </div>
-              )}
+              {node.type === 'note' && (() => {
+                const bgColor = getNoteBgColor((node as NoteNode).color);
+                return (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      background: `linear-gradient(135deg, ${bgColor} 88%, transparent 88%, transparent 100%)`,
+                      color: (node as NoteNode).color === 'dark' ? '#f8fafc' : '#1e293b',
+                      padding: 16,
+                      boxSizing: 'border-box',
+                      fontSize: '15px',
+                      fontWeight: 500,
+                      borderRadius: 2,
+                      boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.05)',
+                      position: 'relative',
+                      display: 'flex',
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      right: 0,
+                      width: '12%',
+                      height: '12%',
+                      background: `linear-gradient(to top left, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0) 50%)`,
+                      backgroundColor: bgColor,
+                      borderTopLeftRadius: 4,
+                      boxShadow: '-2px -2px 6px rgba(0,0,0,0.15)',
+                      filter: 'brightness(0.92)'
+                    }} />
+                    {editingNodeId === node.id ? (
+                      <textarea
+                        autoFocus
+                        value={editingText}
+                        onChange={e => setEditingText(e.target.value)}
+                        onBlur={() => {
+                          updateNodes(nodes.map(n => n.id === node.id ? { ...n, text: editingText } : n));
+                          setEditingNodeId(null);
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          background: 'transparent',
+                          border: 'none',
+                          outline: 'none',
+                          resize: 'none',
+                          fontFamily: 'inherit',
+                          fontSize: 'inherit',
+                          color: 'inherit',
+                          zIndex: 2,
+                        }}
+                      />
+                    ) : (
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', zIndex: 2, width: '100%' }}>
+                        {(node as NoteNode).text || 'Double-click to edit'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* REFINED TEXT BOX NODE */}
               {node.type === 'text' && (
@@ -1111,14 +1130,14 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
                     let top: number | string = 0;
                     let left: number | string = 0;
 
-                    if (handle === 'nw') { top = -5; left = -5; cursor = 'nwse-resize'; }
-                    if (handle === 'n') { top = -5; left = '50%'; cursor = 'ns-resize'; }
-                    if (handle === 'ne') { top = -5; left = '100%'; cursor = 'nesw-resize'; }
+                    if (handle === 'nw') { top = -6; left = -6; cursor = 'nwse-resize'; }
+                    if (handle === 'n') { top = -6; left = '50%'; cursor = 'ns-resize'; }
+                    if (handle === 'ne') { top = -6; left = '100%'; cursor = 'nesw-resize'; }
                     if (handle === 'e') { top = '50%'; left = '100%'; cursor = 'ew-resize'; }
                     if (handle === 'se') { top = '100%'; left = '100%'; cursor = 'nwse-resize'; }
                     if (handle === 's') { top = '100%'; left = '50%'; cursor = 'ns-resize'; }
-                    if (handle === 'sw') { top = '100%'; left = -5; cursor = 'nesw-resize'; }
-                    if (handle === 'w') { top = '50%'; left = -5; cursor = 'ew-resize'; }
+                    if (handle === 'sw') { top = '100%'; left = -6; cursor = 'nesw-resize'; }
+                    if (handle === 'w') { top = '50%'; left = -6; cursor = 'ew-resize'; }
 
                     return (
                       <div
@@ -1129,14 +1148,18 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({
                           top,
                           left,
                           transform: 'translate(-50%, -50%)',
-                          width: 10,
-                          height: 10,
-                          background: '#ffffff',
+                          width: 12,
+                          height: 12,
+                          background: '#fff',
                           border: '2px solid var(--accent-primary)',
                           borderRadius: '50%',
                           cursor,
                           zIndex: 10,
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                          transition: 'transform 0.1s ease',
                         }}
+                        onMouseEnter={e => e.currentTarget.style.transform = 'translate(-50%, -50%) scale(1.3)'}
+                        onMouseLeave={e => e.currentTarget.style.transform = 'translate(-50%, -50%) scale(1)'}
                       />
                     );
                   })}
