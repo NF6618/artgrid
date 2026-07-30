@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useCanvasStore } from '../../stores/useCanvasStore';
-import { Point, ArtGridNode } from '../../engine/types';
+import { Point, ArtGridNode, SectionNode } from '../../engine/types';
 import { snapToGrid } from '../../engine/grid';
 
 export const useNodeDragTransform = (
@@ -32,10 +32,25 @@ export const useNodeDragTransform = (
     if (clickedNode && selectedIds.includes(clickedNode.id)) {
       setIsDraggingNode(true);
       setDragStart({ x: e.clientX, y: e.clientY });
-      const starts = new Map();
-      nodes.forEach(n => {
-        if (selectedIds.includes(n.id)) starts.set(n.id, { x: n.x, y: n.y });
-      });
+      
+      const starts = new Map<string, { x: number, y: number }>();
+      
+      // Helper to add a node and all its children to the starts map
+      const addWithChildren = (nodeId: string) => {
+        if (starts.has(nodeId)) return;
+        const n = nodes.find(x => x.id === nodeId);
+        if (!n) return;
+        starts.set(n.id, { x: n.x, y: n.y });
+        
+        if (n.type === 'section') {
+          nodes.filter(child => child.parentId === n.id).forEach(child => {
+            addWithChildren(child.id);
+          });
+        }
+      };
+
+      selectedIds.forEach(id => addWithChildren(id));
+      
       setNodeStartPositions(starts);
       return true; // handled
     }
@@ -118,7 +133,7 @@ export const useNodeDragTransform = (
         }
 
         return { ...n, x: newX, y: newY, width: newW, height: newH };
-      }), false); // dont save to history while moving
+      }), false, true); // dont save to history or backend while moving
       return true;
     }
 
@@ -138,7 +153,7 @@ export const useNodeDragTransform = (
           return { ...n, x: newX, y: newY };
         }
         return n;
-      }), false);
+      }), false, true); // skip save while dragging
       return true;
     }
     
@@ -158,12 +173,64 @@ export const useNodeDragTransform = (
     if (isDraggingNode) {
       setIsDraggingNode(false);
       setNodeStartPositions(new Map());
-      setNodes(nodes, true);
+      
+      let layoutNeededSections = new Set<string>();
+
+      // Auto-parenting: Check if any dragged nodes center-points are inside a Section
+      let updatedNodes = [...nodes];
+      const sections = updatedNodes.filter(n => n.type === 'section') as SectionNode[];
+
+      updatedNodes = updatedNodes.map(n => {
+        // Only consider nodes that were actually dragged
+        if (!nodeStartPositions.has(n.id)) return n;
+        // Don't parent sections to sections (for now, keep it simple)
+        if (n.type === 'section') return n;
+        
+        const centerX = n.x + n.width / 2;
+        const centerY = n.y + n.height / 2;
+
+        // Find which section its center is inside of, taking the top-most one
+        const parentSection = [...sections].reverse().find(s => (
+          centerX >= s.x && 
+          centerY >= s.y && 
+          centerX <= s.x + s.width && 
+          centerY <= s.y + s.height
+        ));
+
+        const newParentId = parentSection ? parentSection.id : undefined;
+        
+        if (n.parentId !== newParentId) {
+            if (n.parentId) layoutNeededSections.add(n.parentId);
+            if (newParentId) layoutNeededSections.add(newParentId);
+        } else if (newParentId) {
+            // Moved inside the same section
+            layoutNeededSections.add(newParentId);
+        }
+
+        return {
+          ...n,
+          parentId: newParentId
+        };
+      });
+
+      setNodes(updatedNodes, true);
+      
+      if (layoutNeededSections.size > 0) {
+        // Find the active board ID from the URL or a board store.
+        // Actually, BoardCanvas passes boardId to components, or we can get it from document.location / route.
+        // But useCanvasStore doesn't know boardId natively.
+        // Let's fire a custom event that BoardCanvas can pick up, OR we can just grab boardId from window.
+        // Let's dispatch an event with the section IDs.
+        window.dispatchEvent(new CustomEvent('artgrid-layout-sections', { 
+            detail: { sections: Array.from(layoutNeededSections) } 
+        }));
+      }
+
       handled = true;
     }
 
     return handled;
-  }, [resizingHandle, isDraggingNode, nodes, setNodes]);
+  }, [resizingHandle, isDraggingNode, nodes, setNodes, nodeStartPositions]);
 
   const handleResizeHandleMouseDown = (e: React.PointerEvent, handle: string, node: ArtGridNode) => {
     e.stopPropagation();

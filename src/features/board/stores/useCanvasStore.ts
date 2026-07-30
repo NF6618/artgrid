@@ -1,9 +1,13 @@
 import { create } from 'zustand';
 import { ToolType, Viewport, ArtGridNode } from '../engine/types';
 import { HistoryManager } from '../engine/history';
+import { invoke } from '@tauri-apps/api/core';
 
 // Singleton history manager for the canvas store
 const historyManager = new HistoryManager();
+
+
+
 
 interface CanvasState {
   // Viewport & Tools
@@ -28,10 +32,12 @@ interface CanvasState {
   
   // Nodes (Local fast state)
   nodes: ArtGridNode[];
-  setNodes: (nodes: ArtGridNode[] | ((prev: ArtGridNode[]) => ArtGridNode[]), recordHistory?: boolean) => void;
+  setNodes: (nodes: ArtGridNode[] | ((prev: ArtGridNode[]) => ArtGridNode[]), recordHistory?: boolean, skipSave?: boolean) => void;
+  mergeNodes: (incomingNodes: ArtGridNode[], viewportBounds?: {minX: number, minY: number, maxX: number, maxY: number}) => void;
+  layoutSection: (boardId: string, sectionId: string) => Promise<void>;
+  deleteNodes: (boardId: string, nodeIds: string[]) => Promise<void>;
   
-  // Syncing
-  saveNodes: (nodes: ArtGridNode[]) => void;
+  saveNodes?: (nodes: ArtGridNode[]) => void;
   setSaveNodes: (fn: (nodes: ArtGridNode[]) => void) => void;
 
   // History state exposure
@@ -66,7 +72,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   setCroppingNodeId: (id) => set({ croppingNodeId: id }),
 
   nodes: [],
-  setNodes: (nodes, recordHistory = false) => set((state) => {
+  setNodes: (nodes, recordHistory = false, skipSave = false) => set((state) => {
     const newNodes = typeof nodes === 'function' ? nodes(state.nodes) : nodes;
     
     if (recordHistory) {
@@ -74,7 +80,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     }
     
     // Call the external sync save
-    if (state.saveNodes) {
+    if (!skipSave && state.saveNodes) {
       state.saveNodes(newNodes);
     }
     
@@ -84,6 +90,48 @@ export const useCanvasStore = create<CanvasState>((set) => ({
       canRedo: historyManager.canRedo()
     };
   }),
+
+  mergeNodes: (incomingNodes: ArtGridNode[], viewportBounds?: {minX: number, minY: number, maxX: number, maxY: number}) => set((state) => {
+    const merged = new Map(state.nodes.map(n => [n.id, n]));
+    incomingNodes.forEach(n => merged.set(n.id, n));
+    
+    let finalNodes = Array.from(merged.values());
+    if (viewportBounds) {
+      const pad = 2000;
+      finalNodes = finalNodes.filter(n => {
+        return n.x >= viewportBounds.minX - pad && n.x + n.width <= viewportBounds.maxX + pad &&
+               n.y >= viewportBounds.minY - pad && n.y + n.height <= viewportBounds.maxY + pad;
+      });
+    }
+    
+    return { nodes: finalNodes };
+  }),
+
+  layoutSection: async (boardId: string, sectionId: string) => {
+    try {
+      await invoke('layout_section', { boardId, sectionId });
+      window.dispatchEvent(new CustomEvent('artgrid-refresh-tiles'));
+    } catch (e) {
+      console.error('Failed to run layout_section:', e);
+    }
+  },
+
+  deleteNodes: async (boardId: string, nodeIds: string[]) => {
+    try {
+      await invoke('delete_nodes', { boardId, nodeIds });
+      set((state) => {
+        const newNodes = state.nodes.filter(n => !nodeIds.includes(n.id));
+        historyManager.pushState(newNodes);
+        return { 
+          nodes: newNodes, 
+          canUndo: historyManager.canUndo(), 
+          canRedo: historyManager.canRedo() 
+        };
+      });
+    } catch (e) {
+      console.error('Failed to delete nodes:', e);
+    }
+  },
 
   saveNodes: () => {},
   setSaveNodes: (fn) => set({ saveNodes: fn }),

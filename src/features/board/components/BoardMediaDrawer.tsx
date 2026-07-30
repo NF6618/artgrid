@@ -1,20 +1,13 @@
 import React, { useState } from 'react';
-import { ArtGridNode } from '../engine/types';
+
 import { Asset } from '../../../components/Gallery';
 import { LibraryTab } from './drawer/LibraryTab';
 import { LayersTab } from './drawer/LayersTab';
 import { Panel } from '../../../components/ui/Panel';
 
-interface Board {
-  id: string;
-  name: string;
-  nodes: ArtGridNode[];
-}
 
 interface BoardMediaDrawerProps {
   boardFilteredAssets: Asset[];
-  boards: Board[];
-  currentBoardId: string | null;
   collections: any[];
   boardSearchQuery: string;
   setBoardSearchQuery: (query: string) => void;
@@ -30,8 +23,6 @@ interface BoardMediaDrawerProps {
 
 export const BoardMediaDrawer: React.FC<BoardMediaDrawerProps> = ({
   boardFilteredAssets,
-  boards,
-  currentBoardId,
   collections,
   boardSearchQuery,
   setBoardSearchQuery,
@@ -149,7 +140,6 @@ export const BoardMediaDrawer: React.FC<BoardMediaDrawerProps> = ({
 
         {mediaDrawerTab === 'layers' && (
           <LayersTab
-            nodes={boards.find(b => b.id === currentBoardId)?.nodes || []}
             assets={assets}
             standaloneAllAssets={standaloneAllAssets}
           />

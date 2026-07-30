@@ -170,8 +170,9 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({ boardId: _boardId 
         width: w,
         height: h,
         src: assetData.url,
+        thumbnailSrc: assetData.thumbnail_url,
         assetId: assetData.id,
-        crop: { x: 0, y: 0, width: w, height: h },
+        crop: { x: 0, y: 0, width: 1.0, height: 1.0 },
       };
 
       updateNodes([...nodes, imgNode]);
@@ -183,7 +184,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({ boardId: _boardId 
 
   const handleDeleteSelection = () => {
     if (selectedIds.length === 0) return;
-    updateNodes(nodes.filter(n => !selectedIds.includes(n.id)), true);
+    window.dispatchEvent(new CustomEvent('artgrid-delete-nodes', { detail: { ids: selectedIds } }));
     setSelectedIds([]);
   };
 
@@ -307,6 +308,7 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({ boardId: _boardId 
           inset: 0,
           transformOrigin: '0 0',
           transform: `matrix(${viewport.zoom}, 0, 0, ${viewport.zoom}, ${viewport.x}, ${viewport.y})`,
+          willChange: 'transform',
         }}
       >
         {/* DYNAMIC CONNECTOR LAYER */}
@@ -359,10 +361,10 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({ boardId: _boardId 
         <div
           style={{
             position: 'absolute',
-            left: Math.min(marqueeBox.startX, marqueeBox.endX),
-            top: Math.min(marqueeBox.startY, marqueeBox.endY),
-            width: Math.abs(marqueeBox.endX - marqueeBox.startX),
-            height: Math.abs(marqueeBox.endY - marqueeBox.startY),
+            left: Math.min(marqueeBox.startX, marqueeBox.endX) * viewport.zoom + viewport.x,
+            top: Math.min(marqueeBox.startY, marqueeBox.endY) * viewport.zoom + viewport.y,
+            width: Math.abs(marqueeBox.endX - marqueeBox.startX) * viewport.zoom,
+            height: Math.abs(marqueeBox.endY - marqueeBox.startY) * viewport.zoom,
             border: '1px dashed var(--accent-primary)',
             background: 'rgba(124, 107, 240, 0.15)',
             pointerEvents: 'none',

@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "ArtGrid Save to Vault",
+  "version": "1.0.0",
+  "description": "Seamlessly save images and content to your ArtGrid vault.",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.tsx"]
+    }
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ]
+}

@@ -44,7 +44,7 @@ export const BoardPropertyBar: React.FC = () => {
   };
 
   const onDelete = () => {
-    setNodes(nodes.filter(n => !selectedIds.includes(n.id)), true);
+    window.dispatchEvent(new CustomEvent('artgrid-delete-nodes', { detail: { ids: selectedIds } }));
   };
 
   const onDuplicate = () => {
@@ -369,9 +369,74 @@ export const BoardPropertyBar: React.FC = () => {
       {isSection && (
         <>
           <ColorPicker value={(firstNode as SectionNode).color || '#7c6bf0'} onChange={v => updateSelected(n => ({ ...n, color: v }))} title="Header Color" />
+          <button
+            onClick={() => {
+              updateSelected(n => ({ ...n, layout: n.layout === 'masonry' ? 'none' : 'masonry' }));
+              window.dispatchEvent(new CustomEvent('artgrid-layout-sections', { detail: { sections: [firstNode.id] } }));
+            }}
+            title="Toggle Masonry Layout"
+            style={{ 
+              padding: '4px 8px', 
+              fontSize: '11px', 
+              background: (firstNode as SectionNode).layout === 'masonry' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', 
+              border: '1px solid rgba(255,255,255,0.1)', 
+              color: '#fff', 
+              borderRadius: 6, 
+              cursor: 'pointer' 
+            }}
+          >
+            Masonry
+          </button>
+          {(firstNode as SectionNode).layout === 'masonry' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 600 }}>
+              Cols
+              <input
+                type="number"
+                min="1"
+                value={(firstNode as SectionNode).columns || ''}
+                placeholder="Auto"
+                onChange={e => {
+                  const cols = parseInt(e.target.value);
+                  updateSelected(n => ({ ...n, columns: isNaN(cols) ? undefined : cols }));
+                  window.dispatchEvent(new CustomEvent('artgrid-layout-sections', { detail: { sections: [firstNode.id] } }));
+                }}
+                style={{
+                  width: 48,
+                  padding: '4px 6px',
+                  borderRadius: 6,
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  fontSize: '12px',
+                  outline: 'none',
+                  fontVariantNumeric: 'tabular-nums'
+                }}
+              />
+            </label>
+          )}
           <Divider />
         </>
       )}
+
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 600 }} title="Opacity">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z"/><path d="M12 22V2"/></svg>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={firstNode.opacity ?? 100}
+            onChange={e => {
+              const val = Number(e.target.value);
+              updateSelected(n => ({ ...n, opacity: val }));
+            }}
+            style={{ width: 60, cursor: 'pointer' }}
+          />
+          <span style={{ width: 24, textAlign: 'right' }}>{Math.round(firstNode.opacity ?? 100)}%</span>
+        </label>
+      </div>
+
+      <Divider />
 
       <div style={{ display: 'flex', gap: 6 }}>
         <button

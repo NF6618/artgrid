@@ -27,6 +27,9 @@ export interface BaseNode {
   rotation?: number; // degrees 0-360
   zIndex?: number;
   locked?: boolean;
+  opacity?: number;
+  visible?: boolean;
+  parentId?: string;
 }
 
 export interface SectionNode extends BaseNode {
@@ -34,6 +37,8 @@ export interface SectionNode extends BaseNode {
   title: string;
   color?: string;
   description?: string;
+  layout?: 'none' | 'masonry';
+  columns?: number;
 }
 
 export interface ImageAdjustments {
@@ -47,6 +52,7 @@ export interface ImageAdjustments {
 export interface ImageNode extends BaseNode {
   type: 'image';
   src: string;
+  thumbnailSrc?: string;
   assetId?: string;
   originalWidth?: number;
   originalHeight?: number;

@@ -198,8 +198,32 @@ export const IconDownload: React.FC<IconProps> = ({ size = 16, className, stroke
 );
 
 export const IconEye: React.FC<IconProps> = ({ size = 16, className, strokeWidth = 1.5 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+  <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth}>
+    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0Z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+
+export const IconEyeOff: React.FC<IconProps> = ({ size = 16, className, strokeWidth = 1.5 }) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
+    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
+    <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>
+    <line x1="2" y1="2" x2="22" y2="22"/>
+  </svg>
+);
+
+export const IconArrowUp: React.FC<IconProps> = ({ size = 16, className, strokeWidth = 1.5 }) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 19V5"/>
+    <polyline points="5 12 12 5 19 12"/>
+  </svg>
+);
+
+export const IconArrowDown: React.FC<IconProps> = ({ size = 16, className, strokeWidth = 1.5 }) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 5v14"/>
+    <polyline points="19 12 12 19 5 12"/>
   </svg>
 );
 

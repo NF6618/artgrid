@@ -31,7 +31,8 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({
     editingNodeId,
     setEditingNodeId,
     nodes,
-    setNodes
+    setNodes,
+    viewport
   } = useCanvasStore();
 
   const [editingText, setEditingText] = useState('');
@@ -40,7 +41,8 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({
     setNodes(newNodes, recordHistory);
   };
 
-  const showResizeHandles = isSelected && !node.locked;
+  const showResizeHandles = isSelected && !node.locked && node.type !== 'section';
+  const isLOD = viewport.zoom < 0.5;
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -65,11 +67,13 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({
         width: node.width,
         height: node.height,
         transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined,
-        boxShadow: isSelected ? '0 0 0 2px var(--accent-primary), 0 16px 40px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.2)',
-        borderRadius: node.type === 'note' ? 2 : (node.type === 'image' ? 8 : 4),
-        overflow: (node.type === 'note' || croppingNodeId === node.id) ? 'visible' : 'hidden',
+        boxShadow: isLOD ? 'none' : (isSelected ? '0 0 0 2px var(--accent-primary), 0 16px 40px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.2)'),
+        borderRadius: isLOD ? 0 : (node.type === 'note' ? 2 : (node.type === 'image' ? 8 : 4)),
         cursor: node.locked ? 'not-allowed' : 'move',
         transition: 'box-shadow 0.2s ease',
+        opacity: node.opacity !== undefined ? node.opacity / 100 : 1,
+        display: node.visible === false ? 'none' : 'block',
+        contentVisibility: 'auto'
       }}
       onDoubleClick={handleDoubleClick}
     >
@@ -90,6 +94,7 @@ export const NodeRenderer: React.FC<NodeRendererProps> = ({
         <FilteredImageNode
           node={node as ImageNode}
           isCropping={croppingNodeId === node.id}
+          isLOD={isLOD}
           onCropDragStart={(e) => {
             e.stopPropagation();
             setIsDraggingCrop(true);

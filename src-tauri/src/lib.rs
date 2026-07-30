@@ -16,6 +16,7 @@ mod ai;
 mod folders;
 pub mod importers;
 mod search;
+mod server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -49,6 +50,9 @@ pub fn run() {
             // Initialize and manage AI Pipeline
             app.manage(ai::pipeline::AiPipeline::new(app.handle().clone()));
             
+            // Start the local extension server
+            server::start_local_server(app.handle().clone());
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -79,6 +83,10 @@ pub fn run() {
             board::create_board,
             board::save_board,
             board::delete_board,
+            board::get_visible_nodes,
+            board::upsert_nodes,
+            board::delete_nodes,
+            board::layout_section,
             metadata::get_collections,
             metadata::create_collection,
             metadata::bulk_create_collections,

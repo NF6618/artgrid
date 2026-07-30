@@ -51,7 +51,7 @@ export const BoardsGallery: React.FC<BoardsGalleryProps> = ({
           <IconBoard size={20} className="text-accent" />
           <div>
             <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              Mood Boards
+              Project Boards
             </h2>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               {boards.length} total boards
@@ -65,7 +65,7 @@ export const BoardsGallery: React.FC<BoardsGalleryProps> = ({
           <input
             type="text"
             className="search-bar__input"
-            placeholder="Search mood boards..."
+            placeholder="Search project boards..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -104,7 +104,7 @@ export const BoardsGallery: React.FC<BoardsGalleryProps> = ({
               <IconBoard size={48} />
             </div>
             <div style={{ fontSize: '1.1rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-              {searchQuery ? 'No matching boards found' : 'No mood boards created yet'}
+              {searchQuery ? 'No matching boards found' : 'No project boards created yet'}
             </div>
             <button className="btn btn--primary" onClick={handleCreateNew} style={{ marginTop: 8 }}>
               <IconPlus size={15} /> Create Your First Board

@@ -109,6 +109,27 @@ pub fn init_db(db_path: &PathBuf) -> Result<Connection> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS board_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT NOT NULL UNIQUE,
+            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+            node_type TEXT NOT NULL,
+            node_json TEXT NOT NULL,
+            z_index INTEGER NOT NULL DEFAULT 0
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS board_nodes_rtree USING rtree(
+            id,
+            minX, maxX,
+            minY, maxY
+        )",
+        [],
+    )?;
+
     // ── Documents table ───────────────────────────────────────────────────────
     //
     // Parent record for every ingested file.

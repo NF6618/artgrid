@@ -66,6 +66,16 @@ fn generate_pdf_thumbnail(pdf_path: &PathBuf, out_path: &PathBuf) -> Result<(), 
     Ok(())
 }
 
+fn generate_image_thumbnail(img_path: &PathBuf, out_path: &PathBuf) -> Result<(), String> {
+    if let Ok(img) = image::open(img_path) {
+        let thumb = img.thumbnail(256, 256);
+        thumb.save_with_format(out_path, image::ImageFormat::Jpeg).map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("Failed to open image".to_string())
+    }
+}
+
 fn extract_color_palette(path: &PathBuf) -> (Option<Vec<String>>, Option<String>) {
     if let Ok(img) = image::open(path) {
         let resized = img.thumbnail(64, 64);
@@ -323,6 +333,13 @@ pub async fn import_file(file_path: String, app: tauri::AppHandle) -> Result<Ass
         let thumb_abs_path = vault_path.join(&thumb_rel_path);
         let _ = generate_pdf_thumbnail(&dest_abs_path, &thumb_abs_path);
         thumbnail_url = Some(thumb_rel_path.to_string_lossy().into_owned());
+    } else if ["png", "jpg", "jpeg", "webp"].contains(&ext.as_str()) {
+        let thumb_filename = format!("{}_thumb.jpg", id);
+        let thumb_rel_path = PathBuf::from("artgrid").join("media").join(&thumb_filename);
+        let thumb_abs_path = vault_path.join(&thumb_rel_path);
+        if generate_image_thumbnail(&dest_abs_path, &thumb_abs_path).is_ok() {
+            thumbnail_url = Some(thumb_rel_path.to_string_lossy().into_owned());
+        }
     }
     
     // Get file size

@@ -147,7 +147,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onChange={(e) => { setSettings({...settings, defaultView: e.target.value}); setHasChanges(true); }}
                       >
                         <option value="library">Library</option>
-                        <option value="boards">Mood Boards</option>
+                        <option value="boards">Project Boards</option>
                         <option value="recent">Recent Imports</option>
                       </select>
                     </label>

@@ -4,10 +4,11 @@ import { ImageNode } from '../engine/types';
 interface FilteredImageNodeProps {
   node: ImageNode;
   isCropping: boolean;
+  isLOD?: boolean;
   onCropDragStart?: (e: React.PointerEvent) => void;
 }
 
-export const FilteredImageNode: React.FC<FilteredImageNodeProps> = ({ node, isCropping, onCropDragStart }) => {
+export const FilteredImageNode: React.FC<FilteredImageNodeProps> = ({ node, isCropping, isLOD, onCropDragStart }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -17,8 +18,16 @@ export const FilteredImageNode: React.FC<FilteredImageNodeProps> = ({ node, isCr
     if (!ctx) return;
 
     const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = node.src;
+    
+    // In Tauri, asset:// protocol might fail with crossOrigin='anonymous'
+    // img.crossOrigin = 'anonymous';
+    
+    const finalSrc = (isLOD && node.thumbnailSrc) ? node.thumbnailSrc : node.src;
+    img.src = finalSrc;
+    
+    img.onerror = (err) => {
+      console.error('Failed to load image:', finalSrc, err);
+    };
     
     img.onload = () => {
       // Decode UV percentage crop to absolute pixel values on the source image

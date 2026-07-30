@@ -350,7 +350,7 @@ const App: React.FC = () => {
       case 'untagged': return 'Untagged Assets';
       case 'archive': return 'Archive';
       case 'trash': return 'Trash Bin';
-      case 'boards': return 'Mood Boards';
+      case 'boards': return 'Project Boards';
       case 'graph': return 'Inspiration Graph';
       case 'search': return 'Search';
       default: return 'Library';

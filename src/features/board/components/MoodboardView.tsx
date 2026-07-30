@@ -45,8 +45,6 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
       {/* Absolute floating media drawer */}
       {currentBoardId && (
         <BoardMediaDrawer
-          boards={boards}
-          currentBoardId={currentBoardId}
           boardFilteredAssets={boardFilteredAssets}
           collections={collections}
           boardSearchQuery={boardSearchQuery}
@@ -132,7 +130,7 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
                 onMouseEnter={e => { if (b.id !== currentBoardId) e.currentTarget.style.color = '#fff'; }}
                 onMouseLeave={e => { if (b.id !== currentBoardId) e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; }}
               >
-                {b.name}
+                {b.title || 'Untitled Board'}
               </button>
             ))}
           </div>
@@ -140,7 +138,13 @@ export const MoodboardView: React.FC<MoodboardViewProps> = ({
 
         {/* The Board Canvas */}
         <div style={{ flex: 1, position: 'relative' }}>
-          <BoardCanvas />
+          {currentBoardId ? (
+            <BoardCanvas boardId={currentBoardId} />
+          ) : (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+              No board selected. Please select or create a project board.
+            </div>
+          )}
         </div>
       </div>
     </div>
