@@ -151,32 +151,56 @@ export const ArtGridCanvas: React.FC<ArtGridCanvasProps> = ({ boardId: _boardId 
         assetData = JSON.parse(dataStr);
       }
 
-      if (!assetData || !assetData.url) return;
+      if (!assetData) return;
+      
+      const assetList = Array.isArray(assetData) ? assetData : [assetData];
+      if (assetList.length === 0 || !assetList[0].url) return;
 
       const world = screenToWorld(e.clientX, e.clientY);
-      let w = assetData.width || 360;
-      let h = assetData.height || 360;
-      if (w > 400) {
-        const scale = 400 / w;
-        w = 400;
-        h = h * scale;
-      }
+      
+      const newNodes: ImageNode[] = [];
+      let currentX = world.x;
+      let currentY = world.y;
+      let maxHeightInRow = 0;
+      const MAX_ROW_WIDTH = 2000;
+      const PADDING = 24;
+      const startX = world.x;
 
-      const imgNode: ImageNode = {
-        id: `node_${crypto.randomUUID()}`,
-        type: 'image',
-        x: tldrawSnapToGrid ? snapToGrid(world.x - w / 2) : world.x - w / 2,
-        y: tldrawSnapToGrid ? snapToGrid(world.y - h / 2) : world.y - h / 2,
-        width: w,
-        height: h,
-        src: assetData.url,
-        thumbnailSrc: assetData.thumbnail_url,
-        assetId: assetData.id,
-        crop: { x: 0, y: 0, width: 1.0, height: 1.0 },
-      };
+      assetList.forEach((data) => {
+        let w = data.width || 360;
+        let h = data.height || 360;
+        if (w > 400) {
+          const scale = 400 / w;
+          w = 400;
+          h = h * scale;
+        }
 
-      updateNodes([...nodes, imgNode]);
-      setSelectedIds([imgNode.id]);
+        if (currentX - startX + w > MAX_ROW_WIDTH && currentX !== startX) {
+          currentX = startX;
+          currentY += maxHeightInRow + PADDING;
+          maxHeightInRow = 0;
+        }
+
+        const imgNode: ImageNode = {
+          id: `node_${crypto.randomUUID()}`,
+          type: 'image',
+          x: tldrawSnapToGrid ? snapToGrid(currentX - w / 2) : currentX - w / 2,
+          y: tldrawSnapToGrid ? snapToGrid(currentY - h / 2) : currentY - h / 2,
+          width: w,
+          height: h,
+          src: data.url,
+          thumbnailSrc: data.thumbnail_url,
+          assetId: data.id,
+          crop: { x: 0, y: 0, width: 1.0, height: 1.0 },
+        };
+        newNodes.push(imgNode);
+        
+        currentX += w + PADDING;
+        maxHeightInRow = Math.max(maxHeightInRow, h);
+      });
+
+      updateNodes([...nodes, ...newNodes]);
+      setSelectedIds(newNodes.map(n => n.id));
     } catch (err) {
       console.error('Failed to parse dropped asset', err);
     }

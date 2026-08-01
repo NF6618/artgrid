@@ -12,10 +12,12 @@ import {
   IconPencil, 
   IconEraser,
   IconRotateCcw, 
-  IconRotateCw 
+  IconRotateCw,
+  IconSettings
 } from '../../../components/Icons';
 import { Panel } from '../../../components/ui/Panel';
 import { IconButton } from '../../../components/ui/IconButton';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 
 const ToolButton: React.FC<{
   tool: any;
@@ -79,6 +81,85 @@ export const BoardToolbar: React.FC = () => {
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo, viewport, setViewport } = useCanvasStore();
 
   const handleResetZoom = () => setViewport({ ...viewport, zoom: 1.0 });
+
+  const MediaSettingsPopover = () => {
+    const [isOpen, setIsOpen] = useState(false);
+    const { mediaAutoplay, mediaAudioOnHover, mediaGlobalMute, updateSettings } = useSettingsStore();
+  
+    return (
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          title="Media Playback Settings"
+          style={{
+            padding: '6px 12px',
+            borderRadius: 20,
+            border: '1px solid rgba(255,255,255,0.1)',
+            background: isOpen ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.3)',
+            color: isOpen ? '#fff' : 'rgba(255,255,255,0.8)',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6
+          }}
+        >
+          <IconSettings size={14} />
+          Media
+        </button>
+  
+        {isOpen && (
+          <div style={{
+            position: 'absolute',
+            bottom: '100%',
+            right: 0,
+            marginBottom: 12,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 8,
+            padding: 12,
+            width: 170,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            zIndex: 100,
+            textAlign: 'left'
+          }}>
+            <h4 style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Playback</h4>
+            
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '12px' }}>
+              <input 
+                type="checkbox" 
+                checked={mediaAutoplay} 
+                onChange={e => updateSettings({ mediaAutoplay: e.target.checked })} 
+              />
+              Autoplay Media
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '12px' }}>
+              <input 
+                type="checkbox" 
+                checked={mediaGlobalMute} 
+                onChange={e => updateSettings({ mediaGlobalMute: e.target.checked })} 
+              />
+              Global Mute
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '12px', opacity: mediaGlobalMute ? 0.5 : 1 }}>
+              <input 
+                type="checkbox" 
+                checked={mediaAudioOnHover} 
+                onChange={e => updateSettings({ mediaAudioOnHover: e.target.checked })} 
+                disabled={mediaGlobalMute}
+              />
+              Audio on Hover
+            </label>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const tools = [
     { type: 'select', label: 'Select', icon: <IconCursor size={18} />, shortcut: 'V' },
@@ -173,6 +254,8 @@ export const BoardToolbar: React.FC = () => {
       >
         {Math.round(viewport.zoom * 100)}%
       </button>
+
+      <MediaSettingsPopover />
     </Panel>
   );
 };

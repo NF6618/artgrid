@@ -27,6 +27,20 @@ pub struct AutoCollectRequest {
     pub url: String,
 }
 
+#[derive(Deserialize, Debug, Clone, Serialize)]
+pub struct BatchIngestItem {
+    pub url: Option<String>,
+    pub filename: Option<String>,
+    pub kind: Option<String>,
+    pub sourcePage: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Debug, Clone, Serialize)]
+pub struct BatchIngestRequest {
+    pub items: Vec<BatchIngestItem>,
+}
+
 pub fn start_local_server(app_handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let cors = CorsLayer::new()
@@ -38,6 +52,7 @@ pub fn start_local_server(app_handle: AppHandle) {
             .route("/api/save", post(save_image_handler))
             .route("/api/auto-collect", post(auto_collect_handler))
             .route("/api/saved-pins", get(get_saved_pins_handler))
+            .route("/api/ingest/batch", post(batch_ingest_handler))
             .layer(cors)
             .with_state(app_handle);
 
@@ -184,4 +199,101 @@ async fn get_saved_pins_handler(
     }
     
     Json(saved_pins)
+}
+
+async fn batch_ingest_handler(
+    State(app): State<AppHandle>,
+    Json(payload): Json<BatchIngestRequest>,
+) -> Json<SaveImageResponse> {
+    crate::import::log_telemetry(
+        "NETWORK".to_string(),
+        format!("FETCH 200 -> POST /api/ingest/batch [{} items]", payload.items.len()),
+        "EXTENSION".to_string(),
+    );
+
+    let app_clone = app.clone();
+    let item_count = payload.items.len();
+    
+    // Spawn a background task to process the batch without blocking the HTTP response
+    tauri::async_runtime::spawn(async move {
+        use std::sync::Arc;
+        use tokio::sync::Semaphore;
+        
+        let image_semaphore = Arc::new(Semaphore::new(6));
+        let video_semaphore = Arc::new(Semaphore::new(2));
+        
+        let mut handles = Vec::new();
+        
+        for item in payload.items {
+            let url = match item.url {
+                Some(u) => u,
+                None => continue,
+            };
+            
+            let kind = item.kind.unwrap_or_else(|| "image".to_string());
+            let is_video = kind == "video" || kind == "gif";
+            
+            let sem = if is_video { video_semaphore.clone() } else { image_semaphore.clone() };
+            let app_handle = app_clone.clone();
+            
+            let handle = tauri::async_runtime::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                
+                // Directly call the import logic (similar to save_image_handler)
+                match crate::import::import_from_url(url.clone(), app_handle.clone()).await {
+                    Ok(asset) => {
+                        let state = app_handle.state::<crate::import::AppState>();
+                        let mut pin_id: Option<String> = None;
+                        
+                        if let Some(meta) = &item.metadata {
+                            if let Some(id) = meta.get("pinId").and_then(|v| v.as_str()) {
+                                if !id.is_empty() { pin_id = Some(id.to_string()); }
+                            }
+                        }
+                        
+                        if let Ok(mut db_lock) = state.db.lock() {
+                            if let Some(conn) = db_lock.as_mut() {
+                                let mut title = asset.title;
+                                if let Some(meta) = &item.metadata {
+                                    if let Some(alt) = meta.get("alt").and_then(|v| v.as_str()) {
+                                        if !alt.is_empty() { title = alt.to_string(); }
+                                    }
+                                }
+                                
+                                let _ = conn.execute(
+                                    "UPDATE assets SET url = ?1, title = ?2, source_id = ?3 WHERE id = ?4",
+                                    (item.sourcePage.clone(), title, pin_id, asset.id),
+                                );
+                            }
+                        }
+                        let _ = app_handle.emit("vault-updated", ());
+                    },
+                    Err(e) => {
+                        crate::import::log_telemetry(
+                            "ERROR".to_string(),
+                            format!("Batch import failed for {}: {}", url, e),
+                            "EXTENSION".to_string(),
+                        );
+                    }
+                }
+            });
+            
+            handles.push(handle);
+        }
+        
+        for handle in handles {
+            let _ = handle.await;
+        }
+        
+        crate::import::log_telemetry(
+            "LOG".to_string(),
+            "Batch ingest processing completed".to_string(),
+            "EXTENSION".to_string(),
+        );
+    });
+
+    Json(SaveImageResponse {
+        success: true,
+        message: format!("Queued {} items for download", item_count),
+    })
 }

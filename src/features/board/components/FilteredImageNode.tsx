@@ -15,8 +15,9 @@ export const FilteredImageNode: React.FC<FilteredImageNodeProps> = ({ node, isCr
   const [isHovered, setIsHovered] = useState(false);
   const { mediaAutoplay, mediaAudioOnHover, mediaGlobalMute } = useSettingsStore();
 
-  const isVideo = node.src.toLowerCase().endsWith('.mp4') || node.src.toLowerCase().endsWith('.webm') || node.src.toLowerCase().endsWith('.mov');
-  const isGif = node.src.toLowerCase().endsWith('.gif');
+  const srcBase = node.src.split('?')[0].toLowerCase();
+  const isVideo = srcBase.endsWith('.mp4') || srcBase.endsWith('.webm') || srcBase.endsWith('.mov');
+  const isGif = srcBase.endsWith('.gif');
   const shouldAnimate = !isLOD && (isVideo || (isGif && mediaAutoplay));
 
   useEffect(() => {
